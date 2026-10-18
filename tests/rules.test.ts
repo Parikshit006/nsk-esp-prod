@@ -1,0 +1,62 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { Pool } from 'pg';
+import { createApp } from '../apps/api/src/app.js';
+import { readConfig } from '../apps/api/src/config.js';
+import { createAdmin } from '../apps/api/src/auth.js';
+import { migrate } from '../apps/api/src/migrations.js';
+import { previewScore, scoringRulesSchema } from '../packages/shared/rules.js';
+
+const url=process.env.DATABASE_URL_TEST;
+if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('DATABASE_URL_TEST must be a separate _test database.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`;
+const admin=new Pool({connectionString:url});
+const pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const config=readConfig({NODE_ENV:'test',WEB_ORIGIN:'http://localhost:5173',DATABASE_URL:url,READINESS_TOKEN:'test-only-readiness-token-with-32-characters'});
+const app=createApp(config,pool);
+const rules={points_per_kill:'1.25',placement_points:[{rank:1,points:'12'},{rank:2,points:'8'}],kill_cap:10,tie_break_order:['wins','kills','admin_decision'],disqualification_policy:'keep_points_exclude_podium',cancelled_match_policy:'exclude_all_results'} as const;
+beforeAll(async()=>{await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);await createAdmin(pool,'admin@example.test','a-test-password-1234');});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+
+describe('Admin-controlled scoring rules and reusable templates',()=>{
+  it('uses exact decimal arithmetic and rejects incomplete or duplicate rules',()=>{
+    const parsed=scoringRulesSchema.parse(rules);
+    expect(previewScore(parsed,{placement:1,player_kills:[4,7],penalty:'-1.25'})).toEqual({verified_kills:11,scored_kills:10,kill_points:'12.5',placement_points:'12',penalty:'-1.25',match_points:'23.25'});
+    expect(scoringRulesSchema.safeParse({...rules,tie_break_order:['wins','wins','admin_decision']}).success).toBe(false);
+    expect(scoringRulesSchema.safeParse({...rules,placement_points:[{rank:2,points:'12'}]}).success).toBe(false);
+  });
+  it('requires a session and CSRF, copies a template into a versioned tournament, and audits changes',async()=>{
+    expect((await request(app).get('/api/v1/admin/rule-templates')).status).toBe(401);
+    expect((await request(app).post('/api/v1/auth/login').send({email:'admin@example.test',password:'wrong'})).status).toBe(401);
+    const agent=request.agent(app);
+    const login=await agent.post('/api/v1/auth/login').send({email:'admin@example.test',password:'a-test-password-1234'});
+    expect(login.status).toBe(200);
+    const csrf=login.body.data.csrf_token as string;
+    expect((await agent.post('/api/v1/admin/rule-templates').send({name:'Campus rules',rules})).status).toBe(403);
+    const template=await agent.post('/api/v1/admin/rule-templates').set('X-CSRF-Token',csrf).send({name:'Campus rules',rules});
+    expect(template.status).toBe(201);
+    const tournament=await agent.post('/api/v1/admin/tournaments').set('X-CSRF-Token',csrf).send({name:'October campus cup',capacity:12,timezone:'Asia/Kolkata'});
+    expect(tournament.status).toBe(201);
+    const id=tournament.body.data.id as string;
+    const applied=await agent.post(`/api/v1/admin/tournaments/${id}/rulesets`).set('X-CSRF-Token',csrf).send({expected_version:1,template_revision_id:template.body.data.revision_id});
+    expect(applied.status).toBe(201);expect(applied.body.data.rules).toEqual(rules);
+    const stale=await agent.post(`/api/v1/admin/tournaments/${id}/rulesets`).set('X-CSRF-Token',csrf).send({expected_version:1,rules});
+    expect(stale.status).toBe(409);expect(stale.body.error.code).toBe('STALE_VERSION');
+    const confirmed=await agent.post(`/api/v1/admin/rulesets/${applied.body.data.id}/confirm`).set('X-CSRF-Token',csrf).send({expected_version:2});
+    expect(confirmed.status).toBe(200);
+    const preview=await agent.post(`/api/v1/admin/rulesets/${applied.body.data.id}/preview`).set('X-CSRF-Token',csrf).send({placement:1,player_kills:[4,7],penalty:'-1.25'});
+    expect(preview.status).toBe(200);expect(preview.body.data).toMatchObject({illustrative:true,match_points:'23.25'});
+    const changed={...rules,points_per_kill:'2'};
+    const revision=await agent.post(`/api/v1/admin/rule-templates/${template.body.data.id}/revisions`).set('X-CSRF-Token',csrf).send({expected_revision:1,rules:changed});
+    expect(revision.status).toBe(201);
+    const saved=await agent.get(`/api/v1/admin/tournaments/${id}/rulesets`);
+    expect(saved.body.data.rulesets[0].rules.points_per_kill).toBe('1.25');
+    await expect(pool.query('UPDATE rule_template_revisions SET config=$1 WHERE id=$2',[JSON.stringify(changed),template.body.data.revision_id])).rejects.toThrow('template revisions are immutable');
+    await expect(pool.query('UPDATE tournament_rulesets SET config=$1 WHERE id=$2',[JSON.stringify(changed),applied.body.data.id])).rejects.toThrow('ruleset contents are immutable');
+    const audit=await pool.query('SELECT action FROM audit_events ORDER BY created_at');
+    expect(audit.rows.map(row=>row.action)).toEqual(expect.arrayContaining(['template.created','tournament.created','ruleset.created','ruleset.confirmed','template.revised']));
+    await expect(pool.query('DELETE FROM audit_events')).rejects.toThrow('audit_events are append-only');
+    expect((await agent.post('/api/v1/auth/logout').set('X-CSRF-Token',csrf)).status).toBe(204);
+    expect((await agent.get('/api/v1/admin/rule-templates')).status).toBe(401);
+  });
+});

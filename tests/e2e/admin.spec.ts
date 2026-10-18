@@ -1,0 +1,34 @@
+import { test, expect } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+
+test('admin saves reusable rules, copies them to a tournament, confirms and previews a score',async({page},info)=>{
+  const suffix=info.project.name;
+  await page.goto('/admin');
+  await expect(page.getByRole('heading',{name:'Admin sign-in'})).toBeVisible();
+  await page.getByLabel('Email').fill('browser-admin@example.test');
+  await page.getByLabel('Password').fill('browser-test-password-1234');
+  await page.getByRole('button',{name:'Sign in'}).click();
+  await expect(page.getByRole('heading',{name:'Build a rule set'})).toBeVisible();
+  await page.getByLabel('Points per kill').fill('1.25');
+  await page.getByLabel('Points for rank 1').fill('12');
+  await page.getByLabel('Disqualification policy').selectOption('keep_points_exclude_podium');
+  await page.getByLabel('Cancelled match policy').selectOption('exclude_all_results');
+  await page.getByLabel('Template name').fill(`Campus rules ${suffix}`);
+  await page.getByRole('button',{name:'Save reusable template'}).click();
+  await expect(page.getByText('Reusable template saved.')).toBeVisible();
+  await page.getByRole('listitem').filter({hasText:`Campus rules ${suffix}`}).getByRole('button',{name:'Edit / use'}).click();
+  await page.getByLabel('Tournament name').fill(`October cup ${suffix}`);
+  await page.getByLabel('Team capacity').fill('12');
+  await page.getByRole('button',{name:'Create draft'}).click();
+  await expect(page.getByText('Draft tournament created.')).toBeVisible();
+  await page.getByRole('button',{name:'Copy selected template'}).click();
+  await expect(page.getByText('A new tournament rule version was created.')).toBeVisible();
+  await page.getByRole('button',{name:'Confirm',exact:true}).click();
+  await expect(page.getByText('Rule version 1 confirmed for this tournament.')).toBeVisible();
+  await page.getByLabel('Player kills, separated by commas').fill('4,3');
+  await page.getByRole('button',{name:'Preview score'}).click();
+  await expect(page.getByText(/20\.75 points/)).toBeVisible();
+  expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:`test-results/admin-${suffix}.png`,fullPage:true});
+});

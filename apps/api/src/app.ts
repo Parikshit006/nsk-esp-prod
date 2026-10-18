@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 import type { Pool } from 'pg';
 import type { Config } from './config.js';
 import { publicConfigSchema } from '../../../packages/shared/contracts.js';
+import { authRouter } from './auth.js';
+import { rulesRouter } from './rules-routes.js';
 
 export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{}) {
   const app=express();
@@ -19,19 +21,21 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
     const origin=req.headers.origin;
     if(origin && origin!==config.WEB_ORIGIN) { res.status(403).json(failure('FORBIDDEN','This origin is not allowed.',res.locals.correlationId)); return; }
     if(origin) { res.setHeader('Access-Control-Allow-Origin',origin); res.setHeader('Vary','Origin'); res.setHeader('Access-Control-Allow-Credentials','true'); }
-    if(req.method==='OPTIONS') { res.setHeader('Access-Control-Allow-Methods','GET,HEAD,OPTIONS'); res.setHeader('Access-Control-Allow-Headers','Content-Type,Authorization'); res.sendStatus(204); return; }
+    if(req.method==='OPTIONS') { res.setHeader('Access-Control-Allow-Methods','GET,HEAD,POST,OPTIONS'); res.setHeader('Access-Control-Allow-Headers','Content-Type,Authorization,X-CSRF-Token'); res.sendStatus(204); return; }
     next();
   });
   app.use(express.json({limit:'32kb'}));
   app.get('/api/v1/health/live',(_req,res)=>res.json({data:{status:'alive'}}));
   app.get('/api/v1/meta/config',(_req,res)=>res.json({data:publicConfigSchema.parse({timezone:'Asia/Kolkata',uploads_enabled:false,registration_enabled:false,stage:'foundation'})}));
+  app.use('/api/v1/auth',authRouter(config,pool));
+  app.use('/api/v1/admin',rulesRouter(pool));
   app.get('/api/v1/health/ready',async(req,res)=>{
     const supplied=Buffer.from(req.headers.authorization??'');
     const expected=Buffer.from(`Bearer ${config.READINESS_TOKEN}`);
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==1) throw new Error('Schema not ready');
+      if(result.rows[0]?.schema_version!==3) throw new Error('Schema not ready');
       res.json({data:{status:'ready',database:'ready',stage:'foundation'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });

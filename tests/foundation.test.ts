@@ -50,10 +50,10 @@ describe('Real database and API',()=>{
   it('TEST-094 migrations run from empty, are repeatable and reject applied edits',async()=>{
     await migrate(pool);
     const result=await pool.query('SELECT * FROM schema_migrations');
-    expect(result.rowCount).toBe(1);
+    expect(result.rowCount).toBe(3);
     const dir=await mkdtemp(join(tmpdir(),'esp-migration-'));
     try {await writeFile(join(dir,'0001_foundation.sql'),'SELECT 1;');await expect(migrate(pool,dir)).rejects.toThrow('Applied migration changed');} finally {await rm(dir,{recursive:true});}
-    const data=await pool.query('SELECT schema_version FROM platform_metadata');expect(data.rows).toEqual([{schema_version:1}]);
+    const data=await pool.query('SELECT schema_version FROM platform_metadata');expect(data.rows).toEqual([{schema_version:3}]);
   });
   it('TEST-090 readiness is authenticated and verifies migrated database',async()=>{
     const app=createApp(readConfig(env),pool);
@@ -75,6 +75,6 @@ describe('Real database and API',()=>{
     expect((await request(app).get('/api/v1/meta/config').set('Origin','https://evil.example')).status).toBe(403);
     const allowed=await request(app).get('/api/v1/meta/config').set('Origin',env.WEB_ORIGIN);expect(allowed.headers['access-control-allow-origin']).toBe(env.WEB_ORIGIN);
     const malformed=await request(app).post('/api/v1/anything').set('Content-Type','application/json').send('{secret broken');expect(malformed.status).toBe(400);expect(JSON.stringify(malformed.body)).not.toContain('secret broken');
-    const absent=await request(app).get('/api/v1/admin/missing');expect(absent.status).toBe(404);expect(errorSchema.safeParse(absent.body).success).toBe(true);
+    const absent=await request(app).get('/api/v1/missing');expect(absent.status).toBe(404);expect(errorSchema.safeParse(absent.body).success).toBe(true);
   });
 });
