@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: esp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: esp
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - esp-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U esp -d esp"]
+      interval: 5s
+      retries: 10
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://esp:${POSTGRES_PASSWORD}@db:5432/esp
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set HTTPS WEB_ORIGIN}
+      READINESS_TOKEN: ${READINESS_TOKEN:?Set READINESS_TOKEN}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  esp-postgres:

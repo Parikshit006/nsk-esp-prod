@@ -1,0 +1,37 @@
+name: Verify
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: esp
+          POSTGRES_PASSWORD: ci-only-ephemeral
+          POSTGRES_DB: esp_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U esp -d esp_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://esp:ci-only-ephemeral@localhost:5432/esp_test
+      DATABASE_URL_TEST: postgresql://esp:ci-only-ephemeral@localhost:5432/esp_test
+      WEB_ORIGIN: http://localhost:5173
+      READINESS_TOKEN: ci-only-ephemeral-readiness-token-32chars
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm db:migrate
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e

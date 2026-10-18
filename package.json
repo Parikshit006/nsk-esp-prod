@@ -1,0 +1,50 @@
+{
+  "name": "nsk-esp",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "tsx apps/api/src/server.ts",
+    "dev:web": "vite --config apps/web/vite.config.ts",
+    "build": "tsc -p apps/api/tsconfig.build.json && vite build --config apps/web/vite.config.ts",
+    "start": "node apps/api/dist/apps/api/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint apps packages tests",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx apps/api/src/migrate-cli.ts"
+  },
+  "dependencies": {
+    "@fontsource/barlow-condensed": "5.3.0",
+    "@fontsource/inter": "5.3.0",
+    "dotenv": "18.0.8",
+    "express": "5.3.0",
+    "helmet": "8.3.0",
+    "lucide-react": "1.59.0",
+    "pg": "8.23.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
+    "@types/express": "5.0.6",
+    "@types/node": "^24.19.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/supertest": "7.2.1",
+    "eslint": "10.13.0",
+    "supertest": "7.3.1",
+    "tsx": "4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "8.71.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}
