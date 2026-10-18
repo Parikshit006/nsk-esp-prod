@@ -1,0 +1,61 @@
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import request from 'supertest';
+import { Pool } from 'pg';
+import { createApp } from '../apps/api/src/app.js';
+import { readConfig } from '../apps/api/src/config.js';
+import { createAdmin } from '../apps/api/src/auth.js';
+import { migrate } from '../apps/api/src/migrations.js';
+import sharp from 'sharp';
+
+const url=process.env.DATABASE_URL_TEST;
+if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('DATABASE_URL_TEST must be a separate _test database.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`;const admin=new Pool({connectionString:url});const pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const config=readConfig({NODE_ENV:'test',WEB_ORIGIN:'http://localhost:5173',DATABASE_URL:url,READINESS_TOKEN:'test-only-readiness-token-with-32-characters',CREDENTIAL_ENCRYPTION_KEY:'0123456789abcdef'.repeat(4)});const app=createApp(config,pool);
+const event=crypto.randomUUID(),match=crypto.randomUUID(),attempt=crypto.randomUUID();
+const registrations:string[]=[],entries:string[]=[];
+beforeAll(async()=>{
+  await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);const operator=await createAdmin(pool,'match-operator@example.test','operator-password-1234');
+  const client=await pool.connect();try{await client.query('BEGIN');
+    await client.query("INSERT INTO tournaments(id,name,capacity,timezone,status,created_by,team_size,fee_minor,currency) VALUES($1,'Match flow test',12,'Asia/Kolkata','RegistrationClosed',$2,1,0,'INR')",[event,operator]);
+    await client.query("INSERT INTO tournament_rulesets(id,tournament_id,version_no,config,status,created_by) VALUES($1,$2,1,$3,'Confirmed',$4)",[crypto.randomUUID(),event,JSON.stringify({points_per_kill:'1',placement_points:[{rank:1,points:'10'},{rank:2,points:'5'}],kill_cap:null,tie_break_order:['wins','kills','admin_decision'],disqualification_policy:'void_all_results',cancelled_match_policy:'exclude_all_results'}),operator]);
+    for(let n=1;n<=2;n++){const team=crypto.randomUUID(),registration=crypto.randomUUID(),entry=crypto.randomUUID();registrations.push(registration);entries.push(entry);await client.query('INSERT INTO teams(id,captain_id,name) VALUES($1,$2,$3)',[team,operator,`Team ${n}`]);await client.query("INSERT INTO registrations(id,tournament_id,team_id,name_key,status,payment_status,approval_status,slot_status,eligibility_status) VALUES($1,$2,$3,$4,'Submitted','NotRequired','Approved','Assigned','Verified')",[registration,event,team,`team ${n}`]);await client.query('INSERT INTO roster_entries(id,tournament_id,registration_id,display_name,ign_raw,ign_exact,role) VALUES($1,$2,$3,$4,$5,true,$6)',[entry,event,registration,`Player ${n}`,`IGN${n}`,'Captain']);await client.query('INSERT INTO slots(id,tournament_id,slot_no,registration_id,assigned_by) VALUES($1,$2,$3,$4,$5)',[crypto.randomUUID(),event,n,registration,operator]);}
+    await client.query("INSERT INTO matches(id,tournament_id,match_no,map,scheduled_at,ends_at,current_attempt_id) VALUES($1,$2,1,'Bermuda',now()+interval '1 hour',now()+interval '2 hours',$3)",[match,event,attempt]);await client.query('INSERT INTO match_attempts(id,match_id,attempt_no) VALUES($1,$2,1)',[attempt,match]);await client.query('COMMIT');
+  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+it('guards readiness, freezes rules on start and preserves attempts on interruption',async()=>{
+  const operator=request.agent(app);const csrf=(await operator.post('/api/v1/auth/login').send({email:'match-operator@example.test',password:'operator-password-1234'})).body.data.csrf_token as string;
+  async function change(action:string,expected_version:number,reason?:string){return operator.post(`/api/v1/admin/matches/${match}/transition`).set('X-CSRF-Token',csrf).send({action,expected_version,...(reason?{reason}:{})});}
+  expect((await change('ready',1)).status).toBe(409);
+  const credential=await operator.post(`/api/v1/admin/matches/${match}/credentials`).set('X-CSRF-Token',csrf).send({expected_version:1,room_id:'ROOM-1',password:'PASSWORD-1',release_at:new Date().toISOString()});expect(credential.status).toBe(201);
+  expect((await change('ready',1)).status).toBe(409);
+  expect((await change('ready',2)).body.data).toMatchObject({status:'Ready',version:3});
+  expect((await change('start',3)).body.data).toMatchObject({status:'InProgress',version:4});
+  expect((await pool.query("SELECT status FROM tournament_rulesets WHERE tournament_id=$1",[event])).rows[0].status).toBe('Frozen');
+  expect((await change('interrupt',4,'Lobby disconnected before results')).body.data).toMatchObject({status:'Interrupted',version:5});
+  expect((await change('restart',5,'Replaying interrupted lobby')).body.data).toMatchObject({status:'Scheduled',version:6});
+  const detail=await operator.get(`/api/v1/admin/matches/${match}`);expect(detail.body.data.attempts.map((item:{status:string})=>item.status)).toEqual(['Interrupted','Active']);
+  expect((await change('ready',6)).body.data.status).toBe('Ready');
+  expect((await change('start',7)).body.data.status).toBe('InProgress');
+  expect((await change('finish',8)).body.data.status).toBe('AwaitingEvidence');
+  expect((await change('finish',9)).status).toBe(409);
+  expect((await request(app).get(`/api/v1/matches/${match}/results`)).status).toBe(404);
+  const screenshot=await sharp({create:{width:16,height:16,channels:3,background:'#ffffff'}}).png().toBuffer();
+  const uploaded=await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot);expect(uploaded.status).toBe(201);const evidence=uploaded.body.data.id as string;
+  expect((await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot)).status).toBe(409);
+  const evidenceResponse=await operator.get(`/api/v1/admin/evidence/${evidence}/image`);expect(evidenceResponse.status).toBe(200);expect(evidenceResponse.headers['content-type']).toContain('image/png');
+  const rows=(reverse=false)=>registrations.map((registration,index)=>({registration_id:registration,placement:reverse?2-index:index+1,player_kills:[{roster_entry_id:entries[index],kills:index+1}],adjustment:'0'}));
+  const bad=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:9,evidence_id:evidence,reason:'Manual review of screenshot',rows:rows().slice(0,1)});expect(bad.status).toBe(400);
+  const drafted=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:9,evidence_id:evidence,reason:'Manual review of screenshot',rows:rows()});expect(drafted.status).toBe(201);const resultId=drafted.body.data.id as string;
+  expect((await request(app).get(`/api/v1/matches/${match}/results`)).status).toBe(404);
+  const verified=await operator.post(`/api/v1/admin/results/${resultId}/verify`).set('X-CSRF-Token',csrf).send({expected_match_version:10});expect(verified.status).toBe(200);
+  const scored=await operator.get(`/api/v1/admin/results/${resultId}`);expect(scored.body.data.rows.map((row:{score_breakdown:{match_points:string}})=>row.score_breakdown.match_points)).toEqual(['11','7']);
+  const published=await operator.post(`/api/v1/admin/results/${resultId}/publish`).set('X-CSRF-Token',csrf).send({expected_match_version:11});expect(published.status).toBe(200);
+  const publicResult=await request(app).get(`/api/v1/matches/${match}/results`);expect(publicResult.status).toBe(200);expect(publicResult.body.data.rows[0].team_name).toBe('Team 1');
+  const standing=await request(app).get(`/api/v1/tournaments/${event}/standings`);expect(standing.body.data).toMatchObject({sequence_no:1,rows:[{rank:1,total_points:'11'},{rank:2,total_points:'7'}]});
+  const correction=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:12,evidence_id:evidence,reason:'Corrected placement after review',rows:rows(true)});expect(correction.status).toBe(201);
+  expect((await request(app).get(`/api/v1/matches/${match}/results`)).body.data.version_no).toBe(1);
+  expect((await operator.post(`/api/v1/admin/results/${correction.body.data.id}/verify`).set('X-CSRF-Token',csrf).send({expected_match_version:13})).status).toBe(200);
+  expect((await operator.post(`/api/v1/admin/results/${correction.body.data.id}/publish`).set('X-CSRF-Token',csrf).send({expected_match_version:14})).status).toBe(200);
+  const revised=await request(app).get(`/api/v1/tournaments/${event}/standings`);expect(revised.body.data).toMatchObject({sequence_no:2,rows:[{rank:1,team_name:'Team 2'},{rank:2,team_name:'Team 1'}]});
+});

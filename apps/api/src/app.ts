@@ -11,6 +11,9 @@ import { adminTournamentRouter, publicTournamentRouter } from './tournament-rout
 import { participantRouter } from './participant-routes.js';
 import { reviewRouter } from './review-routes.js';
 import { accessRouter } from './access-routes.js';
+import { matchRouter } from './match-routes.js';
+import { evidenceRouter } from './evidence-routes.js';
+import { resultRouter } from './result-routes.js';
 
 export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{}) {
   const app=express();
@@ -38,13 +41,16 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
   app.use('/api/v1/tournaments',publicTournamentRouter(pool));
   app.use('/api/v1',participantRouter(pool));
   app.use('/api/v1',accessRouter(config,pool));
+  app.use('/api/v1',matchRouter(pool));
+  app.use('/api/v1',evidenceRouter(pool));
+  app.use('/api/v1',resultRouter(pool));
   app.get('/api/v1/health/ready',async(req,res)=>{
     const supplied=Buffer.from(req.headers.authorization??'');
     const expected=Buffer.from(`Bearer ${config.READINESS_TOKEN}`);
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==7) throw new Error('Schema not ready');
+      if(result.rows[0]?.schema_version!==8) throw new Error('Schema not ready');
       res.json({data:{status:'ready',database:'ready',stage:'development'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });
