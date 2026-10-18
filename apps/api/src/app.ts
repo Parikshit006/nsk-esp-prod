@@ -7,6 +7,9 @@ import type { Config } from './config.js';
 import { publicConfigSchema } from '../../../packages/shared/contracts.js';
 import { authRouter } from './auth.js';
 import { rulesRouter } from './rules-routes.js';
+import { adminTournamentRouter, publicTournamentRouter } from './tournament-routes.js';
+import { participantRouter } from './participant-routes.js';
+import { reviewRouter } from './review-routes.js';
 
 export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{}) {
   const app=express();
@@ -26,17 +29,21 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
   });
   app.use(express.json({limit:'32kb'}));
   app.get('/api/v1/health/live',(_req,res)=>res.json({data:{status:'alive'}}));
-  app.get('/api/v1/meta/config',(_req,res)=>res.json({data:publicConfigSchema.parse({timezone:'Asia/Kolkata',uploads_enabled:false,registration_enabled:false,stage:'foundation'})}));
+  app.get('/api/v1/meta/config',(_req,res)=>res.json({data:publicConfigSchema.parse({timezone:'Asia/Kolkata',uploads_enabled:false,registration_enabled:true,stage:'development'})}));
   app.use('/api/v1/auth',authRouter(config,pool));
   app.use('/api/v1/admin',rulesRouter(pool));
+  app.use('/api/v1/admin/tournaments',adminTournamentRouter(pool));
+  app.use('/api/v1/admin',reviewRouter(pool));
+  app.use('/api/v1/tournaments',publicTournamentRouter(pool));
+  app.use('/api/v1',participantRouter(pool));
   app.get('/api/v1/health/ready',async(req,res)=>{
     const supplied=Buffer.from(req.headers.authorization??'');
     const expected=Buffer.from(`Bearer ${config.READINESS_TOKEN}`);
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==3) throw new Error('Schema not ready');
-      res.json({data:{status:'ready',database:'ready',stage:'foundation'}});
+      if(result.rows[0]?.schema_version!==6) throw new Error('Schema not ready');
+      res.json({data:{status:'ready',database:'ready',stage:'development'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });
   app.use('/api',(_req,res)=>res.status(404).json(failure('NOT_FOUND','This endpoint does not exist.',res.locals.correlationId)));

@@ -1,0 +1,40 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { Pool } from 'pg';
+import { createApp } from '../apps/api/src/app.js';
+import { readConfig } from '../apps/api/src/config.js';
+import { migrate } from '../apps/api/src/migrations.js';
+import { createAdmin } from '../apps/api/src/auth.js';
+
+const url=process.env.DATABASE_URL_TEST;
+if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('DATABASE_URL_TEST must be a separate _test database.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`;
+const admin=new Pool({connectionString:url});const pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const app=createApp(readConfig({NODE_ENV:'test',WEB_ORIGIN:'http://localhost:5173',DATABASE_URL:url,READINESS_TOKEN:'test-only-readiness-token-with-32-characters'}),pool);
+beforeAll(async()=>{await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);await createAdmin(pool,'events@example.test','a-test-password-1234');});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+const rules={points_per_kill:'1',placement_points:[{rank:1,points:'12'},{rank:2,points:'8'}],kill_cap:null,tie_break_order:['wins','admin_decision'],disqualification_policy:'keep_points_exclude_podium',cancelled_match_policy:'exclude_all_results'};
+const at=(hours:number)=>new Date(Date.now()+hours*60*60*1000).toISOString();
+describe('Tournament configuration and publication',()=>{
+  it('gates publication on complete config, confirmed rules and a non-overlapping schedule',async()=>{
+    const agent=request.agent(app);const login=await agent.post('/api/v1/auth/login').send({email:'events@example.test',password:'a-test-password-1234'});const csrf=login.body.data.csrf_token as string;
+    const post=(path:string,body:object)=>agent.post(path).set('X-CSRF-Token',csrf).send(body);
+    const created=await post('/api/v1/admin/tournaments',{name:'Test campus event',capacity:12,timezone:'Asia/Kolkata'});expect(created.status).toBe(201);const id=created.body.data.id as string;
+    expect((await agent.get('/api/v1/tournaments')).body.data).toEqual([]);
+    const early=await post(`/api/v1/admin/tournaments/${id}/transition`,{action:'publish',expected_version:1});expect(early.status).toBe(409);expect(early.body.error.code).toBe('GATE_BLOCKED');
+    const config={expected_version:1,name:'Test campus event',capacity:12,timezone:'Asia/Kolkata',format:'Squad battle royale',team_size:4,fee_minor:0,currency:'INR',registration_open_at:at(-1),registration_close_at:at(1),starts_at:at(2),ends_at:at(5),rules_text:'Organizer rules for this test tournament are published here.',eligibility_text:'College participants',payment_instructions:''};
+    const configured=await agent.patch(`/api/v1/admin/tournaments/${id}`).set('X-CSRF-Token',csrf).send(config);expect(configured.status).toBe(200);
+    const match=await post(`/api/v1/admin/tournaments/${id}/matches`,{expected_version:2,match_no:1,map:'Bermuda',scheduled_at:at(2.5),ends_at:at(3)});expect(match.status).toBe(201);
+    const overlap=await post(`/api/v1/admin/tournaments/${id}/matches`,{expected_version:3,match_no:2,map:'Purgatory',scheduled_at:at(2.75),ends_at:at(3.25)});expect(overlap.status).toBe(409);expect(overlap.body.error.code).toBe('SCHEDULE_CONFLICT');
+    const blocked=await post(`/api/v1/admin/tournaments/${id}/validate`,{});expect(blocked.body.data.ready).toBe(false);expect(blocked.body.data.blockers).toEqual([{field:'ruleset',issue:'Confirm the latest rule version.'}]);
+    const ruleset=await post(`/api/v1/admin/tournaments/${id}/rulesets`,{expected_version:3,rules});expect(ruleset.status).toBe(201);
+    const confirmed=await post(`/api/v1/admin/rulesets/${ruleset.body.data.id}/confirm`,{expected_version:4});expect(confirmed.status).toBe(200);
+    expect((await post(`/api/v1/admin/tournaments/${id}/validate`,{})).body.data).toEqual({ready:true,blockers:[]});
+    const published=await post(`/api/v1/admin/tournaments/${id}/transition`,{action:'publish',expected_version:5});expect(published.status).toBe(200);expect(published.body.data.status).toBe('Published');
+    const publicList=await agent.get('/api/v1/tournaments');expect(publicList.body.data).toHaveLength(1);expect(publicList.body.data[0].name).toBe('Test campus event');
+    const publicDetail=await agent.get(`/api/v1/tournaments/${id}`);expect(publicDetail.body.data.matches).toHaveLength(1);expect(publicDetail.body.data.rules.config.points_per_kill).toBe('1');
+    const locked=await agent.patch(`/api/v1/admin/tournaments/${id}`).set('X-CSRF-Token',csrf).send({...config,expected_version:6});expect(locked.status).toBe(409);
+    const opened=await post(`/api/v1/admin/tournaments/${id}/transition`,{action:'open_registration',expected_version:6});expect(opened.body.data.status).toBe('RegistrationOpen');
+    const closed=await post(`/api/v1/admin/tournaments/${id}/transition`,{action:'close_registration',expected_version:7});expect(closed.body.data.status).toBe('RegistrationClosed');
+  });
+});

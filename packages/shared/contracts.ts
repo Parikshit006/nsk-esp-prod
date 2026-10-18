@@ -2,8 +2,8 @@ import { z } from 'zod';
 export const publicConfigSchema = z.object({
   timezone: z.literal('Asia/Kolkata'),
   uploads_enabled: z.literal(false),
-  registration_enabled: z.literal(false),
-  stage: z.literal('foundation')
+  registration_enabled: z.boolean(),
+  stage: z.literal('development')
 }).strict();
 export type PublicConfig = z.infer<typeof publicConfigSchema>;
 export const errorSchema = z.object({ error: z.object({ code:z.string(), message:z.string(), correlation_id:z.string().uuid(), details:z.array(z.object({field:z.string(),issue:z.string()})).optional() }) });

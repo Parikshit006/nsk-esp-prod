@@ -1,0 +1,48 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { Pool } from 'pg';
+import { createApp } from '../apps/api/src/app.js';
+import { readConfig } from '../apps/api/src/config.js';
+import { createAdmin } from '../apps/api/src/auth.js';
+import { migrate } from '../apps/api/src/migrations.js';
+const url=process.env.DATABASE_URL_TEST;
+if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('DATABASE_URL_TEST must be a separate _test database.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`;const admin=new Pool({connectionString:url});const pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const app=createApp(readConfig({NODE_ENV:'test',WEB_ORIGIN:'http://localhost:5173',DATABASE_URL:url,READINESS_TOKEN:'test-only-readiness-token-with-32-characters'}),pool);
+const eventId=crypto.randomUUID();
+beforeAll(async()=>{
+  await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);const owner=await createAdmin(pool,'operator@example.test','a-test-password-1234');
+  await pool.query("INSERT INTO tournaments(id,name,capacity,timezone,status,created_by,team_size,fee_minor,currency,registration_open_at,registration_close_at,starts_at,ends_at) VALUES($1,'Campus registration test',12,'Asia/Kolkata','RegistrationOpen',$2,2,0,'INR',now()-interval '1 hour',now()+interval '1 hour',now()+interval '2 hours',now()+interval '5 hours')",[eventId,owner]);
+});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+describe('Captain registration and roster gates',()=>{
+  it('separates signup, team, registration and submission; enforces owner and complete roster',async()=>{
+    const signup=await request(app).post('/api/v1/auth/register').send({display_name:'Captain One',email:'captain@example.test',password:'captain-password-1234'});expect(signup.status).toBe(201);
+    expect((await request(app).post('/api/v1/auth/register').send({display_name:'Duplicate',email:'captain@example.test',password:'captain-password-1234'})).status).toBe(409);
+    const agent=request.agent(app);const login=await agent.post('/api/v1/auth/login').send({email:'captain@example.test',password:'captain-password-1234'});expect(login.status).toBe(200);const csrf=login.body.data.csrf_token as string;
+    expect((await agent.get('/api/v1/admin/tournaments')).status).toBe(403);
+    const post=(path:string,body:object)=>agent.post(path).set('X-CSRF-Token',csrf).send(body);
+    expect((await agent.post('/api/v1/teams').send({name:'Blue Squad'})).status).toBe(403);
+    const team=await post('/api/v1/teams',{name:'Blue Squad'});expect(team.status).toBe(201);
+    const registration=await post(`/api/v1/tournaments/${eventId}/registrations`,{team_id:team.body.data.id});expect(registration.status).toBe(201);expect(registration.body.data).toMatchObject({payment_status:'NotRequired',approval_status:'Unreviewed',slot_status:'Unassigned'});
+    const rid=registration.body.data.id as string;
+    const incomplete=await post(`/api/v1/registrations/${rid}/submit`,{expected_version:1,eligibility_note:'I am a college participant.'});expect(incomplete.status).toBe(409);expect(incomplete.body.error.code).toBe('GATE_BLOCKED');
+    const captain=await post(`/api/v1/registrations/${rid}/roster`,{expected_version:1,display_name:'Captain One',ign_raw:'Exact ぬ IGN',ign_exact:true,game_uid:'12345',role:'Captain',self:true});expect(captain.status).toBe(201);
+    const duplicate=await post(`/api/v1/registrations/${rid}/roster`,{expected_version:2,display_name:'Other',ign_raw:'exact ぬ ign',ign_exact:true,game_uid:null,role:'Player',self:false});expect(duplicate.status).toBe(409);expect(duplicate.body.error.code).toBe('DUPLICATE');
+    const player=await post(`/api/v1/registrations/${rid}/roster`,{expected_version:2,display_name:'Player Two',ign_raw:'PlayerTwo',ign_exact:false,game_uid:null,role:'Player',self:false});expect(player.status).toBe(201);
+    const other=request.agent(app);await other.post('/api/v1/auth/register').send({display_name:'Other Captain',email:'other@example.test',password:'other-password-1234'});await other.post('/api/v1/auth/login').send({email:'other@example.test',password:'other-password-1234'});
+    expect((await other.get(`/api/v1/registrations/${rid}`)).status).toBe(404);
+    const submitted=await post(`/api/v1/registrations/${rid}/submit`,{expected_version:3,eligibility_note:'Both players are eligible college participants.'});expect(submitted.status).toBe(200);expect(submitted.body.data.status).toBe('Submitted');
+    const detail=await agent.get(`/api/v1/registrations/${rid}`);expect(detail.body.data.roster.map((entry:{ign_raw:string})=>entry.ign_raw)).toContain('Exact ぬ IGN');
+    expect((await post(`/api/v1/registrations/${rid}/roster`,{expected_version:4,display_name:'Late',ign_raw:'Late',ign_exact:true,game_uid:null,role:'Player',self:false})).status).toBe(409);
+    const operator=request.agent(app);const adminLogin=await operator.post('/api/v1/auth/login').send({email:'operator@example.test',password:'a-test-password-1234'});const adminCsrf=adminLogin.body.data.csrf_token as string;
+    const adminPost=(path:string,body:object)=>operator.post(path).set('X-CSRF-Token',adminCsrf).send(body);
+    const queue=await operator.get(`/api/v1/admin/tournaments/${eventId}/registrations`);expect(queue.body.data).toHaveLength(1);
+    const earlyApproval=await adminPost(`/api/v1/admin/registrations/${rid}/decision`,{expected_version:4,decision:'approve'});expect(earlyApproval.status).toBe(409);expect(earlyApproval.body.error.code).toBe('GATE_BLOCKED');
+    const eligibilityReview=await adminPost(`/api/v1/admin/registrations/${rid}/eligibility`,{expected_version:4,approved:true,note:'College eligibility checked against the registration note.'});expect(eligibilityReview.status).toBe(200);
+    const confirmed=await adminPost(`/api/v1/admin/roster-entries/${player.body.data.id}/confirm-ign`,{expected_version:5,note:'Checked exact spelling against organizer supplied evidence.'});expect(confirmed.status).toBe(200);
+    const approval=await adminPost(`/api/v1/admin/registrations/${rid}/decision`,{expected_version:6,decision:'approve'});expect(approval.status).toBe(200);expect(approval.body.data.approval_status).toBe('Approved');
+    const assigned=await operator.put(`/api/v1/admin/tournaments/${eventId}/slots/1`).set('X-CSRF-Token',adminCsrf).send({expected_version:7,registration_id:rid});expect(assigned.status).toBe(201);
+    const final=await agent.get(`/api/v1/registrations/${rid}`);expect(final.body.data).toMatchObject({payment_status:'NotRequired',approval_status:'Approved',slot_status:'Assigned'});
+  });
+});
