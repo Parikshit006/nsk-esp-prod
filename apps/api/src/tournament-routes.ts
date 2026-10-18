@@ -48,7 +48,8 @@ export function adminTournamentRouter(pool:Pool){
       const v=parsed.data;
       const overlap=await client.query('SELECT id FROM matches WHERE tournament_id=$1 AND scheduled_at<$2 AND ends_at>$3',[id.data,v.ends_at,v.scheduled_at]);if(overlap.rowCount)return 'overlap' as const;
       const duplicate=await client.query('SELECT id FROM matches WHERE tournament_id=$1 AND match_no=$2',[id.data,v.match_no]);if(duplicate.rowCount)return 'duplicate' as const;
-      const matchId=randomUUID();await client.query('INSERT INTO matches(id,tournament_id,match_no,map,scheduled_at,ends_at) VALUES($1,$2,$3,$4,$5,$6)',[matchId,id.data,v.match_no,v.map,v.scheduled_at,v.ends_at]);
+      const matchId=randomUUID(),attemptId=randomUUID();await client.query('INSERT INTO matches(id,tournament_id,match_no,map,scheduled_at,ends_at,current_attempt_id) VALUES($1,$2,$3,$4,$5,$6,$7)',[matchId,id.data,v.match_no,v.map,v.scheduled_at,v.ends_at,attemptId]);
+      await client.query('INSERT INTO match_attempts(id,match_id,attempt_no) VALUES($1,$2,1)',[attemptId,matchId]);
       await client.query('UPDATE tournaments SET version=version+1 WHERE id=$1',[id.data]);await audit(client,res.locals.admin.id,'match.created',id.data,null,{match_id:matchId,...v});
       return {id:matchId,tournament_id:id.data,match_no:v.match_no,map:v.map,scheduled_at:v.scheduled_at,ends_at:v.ends_at,status:'Scheduled',version:1,tournament_version:v.expected_version+1};
     });if(data===null)return fail(res,404,'NOT_FOUND','Tournament not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Tournament changed. Reload and try again.');if(data==='locked')return fail(res,409,'INVALID_TRANSITION','Published event schedules are locked.');if(data==='overlap')return fail(res,409,'SCHEDULE_CONFLICT','This match overlaps another match.');if(data==='duplicate')return fail(res,409,'DUPLICATE','This match number already exists.');return res.status(201).json({data});

@@ -1,0 +1,43 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { Pool } from 'pg';
+import { createApp } from '../apps/api/src/app.js';
+import { readConfig } from '../apps/api/src/config.js';
+import { createAdmin } from '../apps/api/src/auth.js';
+import { migrate } from '../apps/api/src/migrations.js';
+const url=process.env.DATABASE_URL_TEST;
+if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('DATABASE_URL_TEST must be a separate _test database.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`;const admin=new Pool({connectionString:url});const pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const config=readConfig({NODE_ENV:'test',WEB_ORIGIN:'http://localhost:5173',DATABASE_URL:url,READINESS_TOKEN:'test-only-readiness-token-with-32-characters',CREDENTIAL_ENCRYPTION_KEY:'0123456789abcdef'.repeat(4)});
+const app=createApp(config,pool);
+const ids={event:crypto.randomUUID(),match:crypto.randomUUID(),attempt:crypto.randomUUID(),registration:crypto.randomUUID(),team:crypto.randomUUID(),captainEntry:crypto.randomUUID(),playerEntry:crypto.randomUUID(),slot:crypto.randomUUID()};
+beforeAll(async()=>{
+  await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);const operator=await createAdmin(pool,'access-operator@example.test','operator-password-1234');
+  const captain=(await request(app).post('/api/v1/auth/register').send({display_name:'Captain',email:'access-captain@example.test',password:'captain-password-1234'})).body.data.id;
+  await request(app).post('/api/v1/auth/register').send({display_name:'Member',email:'access-member@example.test',password:'member-password-1234',account_type:'member'});
+  await request(app).post('/api/v1/auth/register').send({display_name:'Outsider',email:'outsider@example.test',password:'outsider-password-1234',account_type:'member'});
+  const client=await pool.connect();try{await client.query('BEGIN');await client.query("INSERT INTO tournaments(id,name,capacity,timezone,status,created_by,team_size,fee_minor,currency,registration_open_at,registration_close_at,starts_at,ends_at) VALUES($1,'Credential access test',12,'Asia/Kolkata','RegistrationClosed',$2,2,0,'INR',now()-interval '3 hours',now()-interval '2 hours',now()+interval '1 hour',now()+interval '4 hours')",[ids.event,operator]);await client.query('INSERT INTO teams(id,captain_id,name) VALUES($1,$2,$3)',[ids.team,captain,'Access Team']);await client.query("INSERT INTO registrations(id,tournament_id,team_id,name_key,status,payment_status,approval_status,slot_status,eligibility_status) VALUES($1,$2,$3,'access team','Submitted','NotRequired','Approved','Assigned','Verified')",[ids.registration,ids.event,ids.team]);await client.query("INSERT INTO roster_entries(id,tournament_id,registration_id,account_id,display_name,ign_raw,ign_exact,role) VALUES($1,$2,$3,$4,'Captain','CAPTAIN',true,'Captain')",[ids.captainEntry,ids.event,ids.registration,captain]);await client.query("INSERT INTO roster_entries(id,tournament_id,registration_id,display_name,ign_raw,ign_exact,role) VALUES($1,$2,$3,'Member','MEMBER',true,'Player')",[ids.playerEntry,ids.event,ids.registration]);await client.query('INSERT INTO slots(id,tournament_id,slot_no,registration_id,assigned_by) VALUES($1,$2,1,$3,$4)',[ids.slot,ids.event,ids.registration,operator]);await client.query("INSERT INTO matches(id,tournament_id,match_no,map,scheduled_at,ends_at,current_attempt_id) VALUES($1,$2,1,'Bermuda',now()+interval '1 hour',now()+interval '2 hours',$3)",[ids.match,ids.event,ids.attempt]);await client.query('INSERT INTO match_attempts(id,match_id,attempt_no) VALUES($1,$2,1)',[ids.attempt,ids.match]);await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+describe('Linked roster invitations and encrypted room credentials',()=>{
+  it('binds invites to email and gates decryption on slot, membership and release time',async()=>{
+    const captain=request.agent(app),member=request.agent(app),outsider=request.agent(app),operator=request.agent(app);
+    const captainCsrf=(await captain.post('/api/v1/auth/login').send({email:'access-captain@example.test',password:'captain-password-1234'})).body.data.csrf_token as string;
+    const memberCsrf=(await member.post('/api/v1/auth/login').send({email:'access-member@example.test',password:'member-password-1234'})).body.data.csrf_token as string;
+    await outsider.post('/api/v1/auth/login').send({email:'outsider@example.test',password:'outsider-password-1234'});
+    const operatorCsrf=(await operator.post('/api/v1/auth/login').send({email:'access-operator@example.test',password:'operator-password-1234'})).body.data.csrf_token as string;
+    const invited=await captain.post(`/api/v1/registrations/${ids.registration}/roster/${ids.playerEntry}/invitations`).set('X-CSRF-Token',captainCsrf).send({email:'access-member@example.test'});expect(invited.status).toBe(201);const token=invited.body.data.invite_url.split('#')[1] as string;
+    expect((await member.get(`/api/v1/matches/${ids.match}/credentials`)).status).toBe(403);
+    const accepted=await member.post('/api/v1/invitations/accept').set('X-CSRF-Token',memberCsrf).send({token});expect(accepted.status).toBe(200);
+    expect((await member.post('/api/v1/invitations/accept').set('X-CSRF-Token',memberCsrf).send({token})).status).toBe(404);
+    const future=new Date(Date.now()+60*60*1000).toISOString();
+    const set=await operator.post(`/api/v1/admin/matches/${ids.match}/credentials`).set('X-CSRF-Token',operatorCsrf).send({expected_version:1,room_id:'ROOM-SECRET',password:'PASSWORD-SECRET',release_at:future});expect(set.status).toBe(201);
+    const encrypted=await pool.query<{ciphertext:Buffer}>('SELECT ciphertext FROM match_credentials WHERE id=$1',[set.body.data.id]);expect(encrypted.rows[0]!.ciphertext.toString()).not.toContain('ROOM-SECRET');
+    const early=await captain.get(`/api/v1/matches/${ids.match}/credentials`);expect(early.status).toBe(423);expect(early.body.data.available_at).toBeDefined();
+    expect((await outsider.get(`/api/v1/matches/${ids.match}/credentials`)).status).toBe(403);
+    const rotated=await operator.post(`/api/v1/admin/matches/${ids.match}/credentials`).set('X-CSRF-Token',operatorCsrf).send({expected_version:2,room_id:'ROOM-LIVE',password:'PASSWORD-LIVE',release_at:new Date(Date.now()-1000).toISOString()});expect(rotated.status).toBe(201);
+    const opened=await member.get(`/api/v1/matches/${ids.match}/credentials`);expect(opened.status).toBe(200);expect(opened.body.data).toMatchObject({room_id:'ROOM-LIVE',password:'PASSWORD-LIVE',version_no:2});
+    const captainView=await captain.get(`/api/v1/matches/${ids.match}/credentials`);expect(captainView.status).toBe(200);
+    const logs=await pool.query("SELECT count(*)::int n FROM audit_events WHERE action='credential.viewed'");expect(logs.rows[0].n).toBe(2);
+  });
+});

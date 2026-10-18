@@ -5,9 +5,9 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 6. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 7. |
 | GET `/meta/config` | Public | Safe development configuration; uploads disabled, registration available per event. |
-| POST `/auth/register` | Public | Creates a captain account. |
+| POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |
 | GET `/auth/me` | Account session | Current account and refreshed CSRF token. |
 | POST `/auth/logout` | Account session + CSRF | Revokes the session. |
@@ -33,9 +33,14 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | POST `/admin/registrations/:id/payment-waiver` | Admin session + CSRF | Exception for a paid entry with recorded reason. |
 | POST `/admin/registrations/:id/decision` | Admin session + CSRF | Approve, reject or request correction. Approval checks roster, identity flags, payment, eligibility and capacity. |
 | GET `/admin/tournaments/:id/slots`, PUT `/admin/tournaments/:id/slots/:slot` | Admin session; PUT needs CSRF | List or assign capacity-bounded slots to approved teams. |
+| POST `/registrations/:id/roster/:entry/invitations` | Captain owner + CSRF | Create an email-bound, one-time, 48-hour player invitation; returns its private link once. |
+| POST `/invitations/accept` | Invited account + CSRF | Bind an active roster entry to the matching account; rejects expired, revoked or already-used tokens. |
+| GET `/me/linked-matches` | Account session | List non-cancelled matches for linked members of approved, slotted teams. |
+| GET, POST `/admin/matches/:id/credentials` | Admin session; POST needs CSRF | Read metadata only or encrypt and rotate match room details with optimistic version and release time. |
+| GET `/matches/:id/credentials` | Linked approved/slotted roster account | Return active decrypted details only after release; every successful view is audited. |
 
 Scoring accepts non-negative decimal strings with up to three decimal places, a consecutive placement table, optional kill cap, ordered tie-break fields ending in an admin decision, disqualification policy and cancelled-match policy. The application has **no official or implied default points table**. Each template revision and tournament ruleset stores its own copy of configuration. PostgreSQL triggers prevent changing those copies or deleting audit events.
 
 Errors carry a code, plain message and server-generated UUID `correlation_id`. Invalid rule fields include `details`. CORS accepts exactly `WEB_ORIGIN`; session cookies are HttpOnly and SameSite Strict, and HTTPS makes them Secure. Mutations require a CSRF token from the session. Request URLs, payloads, cookies, tokens and database strings are excluded from application logs. Unknown public API routes return JSON 404.
 
-Current limits: payment proof intake/review, roster account invitations, room credentials, match results, standings, evidence/OCR and recovery operations remain pending. Paid entries can only advance through a reasoned waiver at present; no normal paid-event path is claimed. The operator readiness token is separate from account sessions and never sent to the browser.
+Current limits: payment proof intake/review, match results, standings, evidence/OCR and recovery operations remain pending. Paid entries can only advance through a reasoned waiver at present; no normal paid-event path is claimed. The operator readiness token is separate from account sessions and never sent to the browser.

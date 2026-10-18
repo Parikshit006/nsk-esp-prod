@@ -6,7 +6,7 @@ Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/de
 
 ## Local development
 
-Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN and a random READINESS_TOKEN of at least 32 characters. Never commit `.env`.
+Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN, a random READINESS_TOKEN of at least 32 characters, and a random 32-byte hexadecimal CREDENTIAL_ENCRYPTION_KEY. Keep the credential key backed up securely: losing it makes saved room details unreadable. Never commit `.env`.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -20,7 +20,7 @@ Open http://127.0.0.1:5173. The Vite server proxies `/api` to port 3000. Use the
 
 To use the admin workspace, create the first super-admin after migration using `pnpm admin:create admin@example.com`. The command prompts for a password without echoing it. Then open http://127.0.0.1:5173/admin. An admin can save and reuse scoring templates, create and publish a tournament after configuration checks, open its registration window, review submitted teams, verify eligibility and unclear in-game names, approve a team, and assign a slot. No scoring values are preselected as official rules. Template revisions cannot alter rules already copied into tournaments.
 
-Captains use http://127.0.0.1:5173/participate to create an account and team, enter the event roster, and submit registration when the event window is open. Free events have a complete registration-to-slot path. For paid events, the proof upload and review path is not complete; an admin can record an exceptional waiver with a reason, but that is not a substitute for a normal paid-event workflow. Publishing and registration should therefore be used only for development or free-event trials until the remaining operations are implemented.
+Captains use http://127.0.0.1:5173/participate to create an account and team, enter the event roster, and submit registration when the event window is open. After submission, they can create one-time links to connect players to individual roster entries. Players use their link at `/join` with the invited email address. An admin can set and rotate encrypted room details and choose an explicit release time; only linked members of approved, slotted teams can view them afterward. Free events have a complete registration-to-slot path. For paid events, the proof upload and review path is not complete; an admin can record an exceptional waiver with a reason, but that is not a substitute for a normal paid-event workflow. Publishing and registration should therefore be used only for development or free-event trials until the remaining operations are implemented.
 
 For database-only Docker use, set POSTGRES_PASSWORD and run `docker compose up -d db`. For the complete production container, also set an HTTPS WEB_ORIGIN and READINESS_TOKEN, then run `docker compose up --build`. A reverse proxy must provide HTTPS; the container binds to loopback. Docker execution requires a running Docker engine. No public deployment has been performed.
 
@@ -37,7 +37,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-Browser tests launch the API in a unique schema in `DATABASE_URL_TEST` and clean it up after the run. They exercise tournament creation and publication, captain registration, organizer review and slot assignment on desktop and mobile. Production output serves the SPA and API together with `pnpm start` after `pnpm build` and migration. SQL migrations are serialized with an advisory lock, transactionally applied and checksum-protected against edits after application.
+Browser tests launch the API in a unique schema in `DATABASE_URL_TEST` and clean it up after the run. They exercise tournament creation and publication, captain registration, organizer review, slot assignment, room release and a linked player's invitation on desktop and mobile. Production output serves the SPA and API together with `pnpm start` after `pnpm build` and migration. SQL migrations are serialized with an advisory lock, transactionally applied and checksum-protected against edits after application.
 
 ## Architecture
 
@@ -47,4 +47,4 @@ Browser tests launch the API in a unique schema in `DATABASE_URL_TEST` and clean
 - `packages/shared`: validated response contracts, pure exact-decimal preview scoring and exact status catalog.
 - `tests`: unit/database integration and desktop/mobile browser acceptance checks.
 
-Next phases: payment proofs and review, linked roster members, credentials, manual results and corrections, standings, then measured OCR assistance. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.
+Next phases: payment proofs and review, manual results and corrections, standings, then measured OCR assistance. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.

@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { Config } from './config.js';
 
 const loginSchema=z.object({email:z.email().max(254),password:z.string().min(1).max(1024)}).strict();
-const signupSchema=loginSchema.extend({display_name:z.string().trim().min(2).max(80)});
+const signupSchema=loginSchema.extend({display_name:z.string().trim().min(2).max(80),account_type:z.enum(['captain','member']).default('captain')});
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const passwordOptions={N:32768,r:8,p:1,maxmem:64*1024*1024};
 const derive=(password:string,salt:string)=>new Promise<Buffer>((resolve,reject)=>scrypt(password,salt,64,passwordOptions,(error,key)=>error?reject(error):resolve(key)));
@@ -46,7 +46,7 @@ export function authRouter(config:Config,pool:Pool) {
     const email=parsed.data.email.trim().toLowerCase();
     let hash:string;try{hash=await hashPassword(parsed.data.password);}catch{return error(res,400,'VALIDATION_FAILED','Password must contain at least 12 characters.');}
     const id=randomUUID();
-    try {await pool.query('INSERT INTO accounts(id,email,password_hash,role,display_name) VALUES($1,$2,$3,$4,$5)',[id,email,hash,'captain',parsed.data.display_name]);}
+    try {await pool.query('INSERT INTO accounts(id,email,password_hash,role,display_name) VALUES($1,$2,$3,$4,$5)',[id,email,hash,parsed.data.account_type,parsed.data.display_name]);}
     catch(caught){if((caught as {code?:string}).code==='23505')return error(res,409,'DUPLICATE','An account with this email already exists.');throw caught;}
     return res.status(201).json({data:{id,email,display_name:parsed.data.display_name}});
   });

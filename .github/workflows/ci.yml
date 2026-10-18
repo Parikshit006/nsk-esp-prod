@@ -20,6 +20,7 @@ jobs:
       DATABASE_URL_TEST: postgresql://esp:ci-only-ephemeral@localhost:5432/esp_test
       WEB_ORIGIN: http://localhost:5173
       READINESS_TOKEN: ci-only-ephemeral-readiness-token-32chars
+      CREDENTIAL_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
