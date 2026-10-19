@@ -1,6 +1,6 @@
 # Self-hosted launch plan (provisional)
 
-The organizer chose an own server. This is an operator plan, not a declaration that the service is ready for public use. The current app still lacks dispute handling, retention deletion jobs, recovery drills, and production load checks. Do not accept real payments or personal data for a live tournament until those controls are complete.
+The organizer chose an own server. This is an operator plan, not a declaration that the service is ready for public use. The current app has a basic captain result-report workflow but still lacks retention deletion jobs, recovery drills, and production load checks. Do not accept real payments or personal data for a live tournament until those controls are complete.
 
 ## Server layout
 

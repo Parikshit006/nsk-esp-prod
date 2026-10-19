@@ -90,7 +90,7 @@ export function participantRouter(pool:Pool){
       const tournament=await client.query<{status:string}>('SELECT status FROM tournaments WHERE id=$1 FOR UPDATE',[peek.tournament_id]);
       const reg=await ownedRegistration(client,id.data,res.locals.admin.id,true);if(!reg)return null;if(reg.version!==body.data.expected_version)return 'stale' as const;
       if(!['Draft','Submitted','NeedsCorrection'].includes(reg.status)||!['RegistrationOpen','RegistrationClosed'].includes(tournament.rows[0]?.status??''))return 'locked' as const;
-      const started=await client.query("SELECT 1 FROM match_attempts a JOIN matches m ON m.id=a.match_id WHERE m.tournament_id=$1 LIMIT 1",[reg.tournament_id]);if(started.rowCount)return 'started' as const;
+      const started=await client.query("SELECT 1 FROM tournament_rulesets WHERE tournament_id=$1 AND status='Frozen' LIMIT 1",[reg.tournament_id]);if(started.rowCount)return 'started' as const;
       const slot=await client.query<{id:string;slot_no:number}>("SELECT id,slot_no FROM slots WHERE registration_id=$1 AND status='Assigned' FOR UPDATE",[reg.id]);
       if(slot.rows[0])await client.query("UPDATE slots SET status='Released',released_by=$1,released_at=now(),release_reason=$2 WHERE id=$3",[res.locals.admin.id,body.data.reason,slot.rows[0].id]);
       await client.query('UPDATE roster_invitations SET revoked_at=now() WHERE registration_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL',[reg.id]);

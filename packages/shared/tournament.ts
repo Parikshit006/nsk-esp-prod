@@ -16,6 +16,7 @@ export const tournamentConfigInputSchema=draftTournamentSchema.extend({
   rules_text:z.string().trim().min(20).max(10000),
   eligibility_text:z.string().trim().min(5).max(4000),
   payment_instructions:z.string().trim().max(4000),
+  dispute_window_hours:z.number().int().min(0).max(168),
   payment_proof_max_bytes:z.number().int().min(65536).max(10485760).nullable().optional()
 }).strict().superRefine((value,ctx)=>{
   const dates=[value.registration_open_at,value.registration_close_at,value.starts_at,value.ends_at].map(value=>Date.parse(value));

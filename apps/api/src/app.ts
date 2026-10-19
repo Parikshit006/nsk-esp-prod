@@ -16,6 +16,7 @@ import { evidenceRouter } from './evidence-routes.js';
 import { resultRouter } from './result-routes.js';
 import { paymentRouter } from './payment-routes.js';
 import { finalizationRouter } from './finalization-routes.js';
+import { disputeRouter } from './dispute-routes.js';
 
 export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{}) {
   const app=express();
@@ -48,13 +49,14 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
   app.use('/api/v1',resultRouter(pool));
   app.use('/api/v1',paymentRouter(pool));
   app.use('/api/v1',finalizationRouter(pool));
+  app.use('/api/v1',disputeRouter(pool));
   app.get('/api/v1/health/ready',async(req,res)=>{
     const supplied=Buffer.from(req.headers.authorization??'');
     const expected=Buffer.from(`Bearer ${config.READINESS_TOKEN}`);
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==12) throw new Error('Schema not ready');
+      if(result.rows[0]?.schema_version!==13) throw new Error('Schema not ready');
       res.json({data:{status:'ready',database:'ready',stage:'development'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });

@@ -35,6 +35,7 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByLabel('Format').fill('Squad battle royale');
   await page.getByLabel('Players per team').fill('4');
   await page.getByLabel('Entry fee (smallest currency unit)').fill('0');
+  await page.getByLabel('Result dispute window (hours; 0 disables reports)').fill('0');
   await page.getByLabel('Registration opens').fill(at(-1));
   await page.getByLabel('Registration closes').fill(at(1));
   await page.getByLabel('Event starts').fill(at(2));
