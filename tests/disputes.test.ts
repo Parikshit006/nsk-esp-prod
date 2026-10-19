@@ -22,7 +22,7 @@ it('lets the captain report once, blocks the podium during review and the config
   const image=await sharp({create:{width:16,height:16,channels:3,background:'#c95b25'}}).png().toBuffer(),evidencePath=`/api/v1/disputes/${filed.body.data.id}/evidence`;
   expect((await captain.post(evidencePath).set('Content-Type','image/png').send(image)).status).toBe(403);
   const uploaded=await captain.post(evidencePath).set('Content-Type','image/png').set('X-CSRF-Token',captainCsrf).send(image);expect(uploaded.status).toBe(201);
-  expect((await captain.post(evidencePath).set('Content-Type','image/png').set('X-CSRF-Token',captainCsrf).send(image)).status).toBe(409);
+  const repeated=await captain.post(evidencePath).set('Content-Type','image/png').set('X-CSRF-Token',captainCsrf).send(image);expect(repeated.status).toBe(200);expect(repeated.headers['idempotency-replayed']).toBe('true');expect(repeated.body.data.id).toBe(uploaded.body.data.id);
   expect((await request(app).get(evidencePath)).status).toBe(401);
   const downloaded=await captain.get(evidencePath);expect(createHash('sha256').update(downloaded.body as Buffer).digest('hex')).toBe(uploaded.body.data.sha256);expect((await adminAgent.get(evidencePath)).status).toBe(200);
   expect((await adminAgent.get(`/api/v1/admin/tournaments/${event}/disputes`)).body.data[0].evidence_id).toBe(uploaded.body.data.id);

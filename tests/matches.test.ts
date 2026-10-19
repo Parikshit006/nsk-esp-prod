@@ -43,7 +43,7 @@ it('guards readiness, freezes rules on start and preserves attempts on interrupt
   expect((await request(app).get(`/api/v1/matches/${match}/results`)).status).toBe(404);
   const screenshot=await sharp({create:{width:16,height:16,channels:3,background:'#ffffff'}}).png().toBuffer();
   const uploaded=await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot);expect(uploaded.status).toBe(201);const evidence=uploaded.body.data.id as string;
-  expect((await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot)).status).toBe(409);
+  const repeated=await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot);expect(repeated.status).toBe(200);expect(repeated.headers['idempotency-replayed']).toBe('true');expect(repeated.body.data.id).toBe(evidence);
   const evidenceResponse=await operator.get(`/api/v1/admin/evidence/${evidence}/image`);expect(evidenceResponse.status).toBe(200);expect(evidenceResponse.headers['content-type']).toContain('image/png');
   const ocrPath=`/api/v1/admin/evidence/${evidence}/ocr`;
   expect((await request(app).get(ocrPath)).status).toBe(401);
