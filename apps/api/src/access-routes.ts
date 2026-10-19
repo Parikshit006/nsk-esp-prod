@@ -43,6 +43,7 @@ export function accessRouter(config:Config,pool:Pool){
     catch(error){if((error as {code?:string}).code==='23505')return fail(res,409,'DUPLICATE','This account is already linked to another active roster in the tournament.');throw error;}
   });
   router.get('/me/linked-matches',requireAccount(pool),async(_req,res)=>{
+    if(!res.locals.admin.email_verified)return fail(res,403,'EMAIL_VERIFICATION_REQUIRED','Verify your email before accessing matches.');
     const result=await pool.query("SELECT DISTINCT m.id,m.match_no,m.map,m.scheduled_at,m.status,t.name tournament_name,t.timezone,r.id registration_id FROM roster_entries e JOIN registrations r ON r.id=e.registration_id JOIN slots s ON s.registration_id=r.id AND s.status='Assigned' JOIN tournaments t ON t.id=r.tournament_id JOIN matches m ON m.tournament_id=t.id WHERE e.account_id=$1 AND e.status='Active' AND r.status='Submitted' AND r.approval_status='Approved' AND r.slot_status='Assigned' AND r.payment_status IN ('NotRequired','Verified','Waived') AND NOT r.payment_recheck_required AND t.status<>'Cancelled' AND m.status<>'Cancelled' ORDER BY m.scheduled_at,m.id",[res.locals.admin.id]);return res.json({data:result.rows});
   });
   router.get('/admin/matches/:id/credentials',requireAdmin(pool),async(req,res)=>{
@@ -59,6 +60,7 @@ export function accessRouter(config:Config,pool:Pool){
     });if(data===null)return fail(res,404,'NOT_FOUND','Match not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Match changed. Reload and try again.');if(data==='cancelled')return fail(res,409,'INVALID_TRANSITION','Cancelled matches cannot receive credentials.');return res.status(201).json({data});
   });
   router.get('/matches/:id/credentials',requireAccount(pool),async(req,res)=>{
+    if(!res.locals.admin.email_verified)return fail(res,403,'EMAIL_VERIFICATION_REQUIRED','Verify your email before viewing room details.');
     const id=uuid.safeParse(req.params.id);if(!id.success)return fail(res,400,'VALIDATION_FAILED','Invalid match ID.');const key=secretKey(config);if(!key)return fail(res,503,'PROVIDER_UNAVAILABLE','Room access is not configured.');
     const client=await pool.connect();try{
       const match=await client.query<{tournament_id:string;status:string;tournament_status:string}>('SELECT m.tournament_id,m.status,t.status tournament_status FROM matches m JOIN tournaments t ON t.id=m.tournament_id WHERE m.id=$1',[id.data]);if(!match.rows[0])return fail(res,404,'NOT_FOUND','Match not found.');if(match.rows[0].status==='Cancelled'||match.rows[0].tournament_status==='Cancelled')return fail(res,409,'NOT_ELIGIBLE','Match is cancelled.');

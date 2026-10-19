@@ -1,0 +1,27 @@
+import {afterAll,beforeAll,it,expect} from 'vitest';
+import request from 'supertest';
+import {Pool} from 'pg';
+import {createApp} from '../apps/api/src/app.js';
+import {readConfig} from '../apps/api/src/config.js';
+import {migrate} from '../apps/api/src/migrations.js';
+const url=process.env.DATABASE_URL_TEST;if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('A separate _test database is required.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`,admin=new Pool({connectionString:url}),pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const sent:string[]=[];
+const app=createApp(readConfig({NODE_ENV:'test',DATABASE_URL:url,WEB_ORIGIN:'http://localhost:5173',READINESS_TOKEN:'verification-test-token-with-more-than-32-characters'}),pool,()=>{},undefined,async(_email,link)=>{sent.push(link);});
+beforeAll(async()=>{await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+it('requires possession of the new account email before team writes and consumes verification links',async()=>{
+ const agent=request.agent(app),email='verify@example.test',password='verify-password-1234';
+ const registered=await agent.post('/api/v1/auth/register').send({email,password,display_name:'Verify Captain'});expect(registered.status).toBe(201);expect(registered.body.data.email_verification_required).toBe(true);expect(sent).toHaveLength(1);
+ const login=await agent.post('/api/v1/auth/login').send({email,password});expect(login.body.data.user.email_verified).toBe(false);const csrf=login.body.data.csrf_token;
+ expect((await agent.post('/api/v1/teams').set('X-CSRF-Token',csrf).send({name:'Verified Squad'})).body.error.code).toBe('EMAIL_VERIFICATION_REQUIRED');
+ const old=sent[0]!.split('#')[1]!;
+ expect((await agent.post('/api/v1/auth/resend-verification').set('X-CSRF-Token',csrf).send({})).status).toBe(200);expect(sent).toHaveLength(2);
+ expect((await agent.post('/api/v1/auth/verify-email').send({token:old})).status).toBe(400);
+ const latest=sent[1]!.split('#')[1]!;
+ expect((await agent.post('/api/v1/auth/verify-email').send({token:latest})).status).toBe(200);
+ expect((await agent.post('/api/v1/auth/verify-email').send({token:latest})).status).toBe(400);
+ expect((await agent.get('/api/v1/auth/me')).body.data.user.email_verified).toBe(true);
+ expect((await agent.post('/api/v1/teams').set('X-CSRF-Token',csrf).send({name:'Verified Squad'})).status).toBe(201);
+ const stored=await pool.query('SELECT token_hash FROM email_verification_tokens');expect(JSON.stringify(stored.rows)).not.toContain(latest);
+});

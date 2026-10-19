@@ -6,7 +6,7 @@ Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/de
 
 ## Local development
 
-Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN, a random READINESS_TOKEN of at least 32 characters, and a random 32-byte hexadecimal CREDENTIAL_ENCRYPTION_KEY. Configure SMTP to test email recovery and organizer invitations locally; SMTP settings are required in production. Keep the credential key backed up securely: losing it makes saved room details unreadable. Never commit `.env`.
+Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN, a random READINESS_TOKEN of at least 32 characters, and a random 32-byte hexadecimal CREDENTIAL_ENCRYPTION_KEY. Configure SMTP to test email verification, recovery and organizer invitations locally; SMTP settings are required in production. Local signups without SMTP are automatically verified for development. Keep the credential key backed up securely: losing it makes saved room details unreadable. Never commit `.env`.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -47,4 +47,4 @@ Browser tests launch the API in a unique schema in `DATABASE_URL_TEST` and clean
 - `packages/shared`: validated response contracts, pure exact-decimal preview scoring and exact status catalog.
 - `tests`: unit/database integration and desktop/mobile browser acceptance checks.
 
-Remaining phases include measured OCR assistance. Captains can attach private evidence to result reports, request post-lock roster corrections for organizer review and withdraw before matches begin. Organizers can release and reassign slots before match operations; an admin can archive a completed event while keeping its podium public. A super admin can reopen a completed event for correction while retaining prior finalization history. Idempotency, email verification and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules and the result-reporting window per tournament; reusable scoring templates are available.
+Remaining phases include measured OCR assistance. Captains can attach private evidence to result reports, request post-lock roster corrections for organizer review and withdraw before matches begin. Organizers can release and reassign slots before match operations; an admin can archive a completed event while keeping its podium public. A super admin can reopen a completed event for correction while retaining prior finalization history. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules and the result-reporting window per tournament; reusable scoring templates are available.

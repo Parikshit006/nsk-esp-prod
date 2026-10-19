@@ -3,6 +3,7 @@
 ## October 20 additions
 
 - `POST /auth/request-password-reset`, `POST /auth/reset-password`: generic email request response with per-email/IP throttling; one-use 30-minute email link resets the password, consumes outstanding links and revokes all sessions. Production requires SMTP settings; no email is sent by the local tests.
+- `POST /auth/verify-email`, `POST /auth/resend-verification`: one-use 24-hour email verification for new accounts, with throttled resend. Unverified captains and members can sign in to resend but cannot mutate tournament records or view protected room details. Local development without SMTP auto-verifies signups; production requires email delivery configuration.
 - `GET /admin/organizers`, `POST /admin/organizers`, `POST /admin/organizers/:id/invite`, `POST /admin/organizers/:id/status`: super-admin organizer list, email activation, resend and reasoned enable/disable. An organizer cannot sign in before activation; disabling revokes sessions and open reset links.
 - `GET/POST /registrations/:id/roster-change-requests`, `GET /admin/tournaments/:id/roster-change-requests`, `POST /admin/roster-change-requests/:id/decision`: captain requests a change after registration closes and before room release or match start; organizer approval applies it, invalidates affected player links and prior team/eligibility review, and triggers notices. Rejection preserves the live roster.
 - `POST /admin/registrations/:id/release-slot`: reasoned organizer release before match operations, with an immutable slot history and notification. Existing slot assignment accepts a released registration for reassignment.
@@ -25,7 +26,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 22. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 23. |
 | GET `/meta/config` | Public | Safe configuration; private evidence and payment-proof uploads available, registration available per event. |
 | POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |
@@ -83,4 +84,4 @@ Scoring accepts non-negative decimal strings with up to three decimal places, a 
 
 Errors carry a code, plain message and server-generated UUID `correlation_id`. Invalid rule fields include `details`. CORS accepts exactly `WEB_ORIGIN`; session cookies are HttpOnly and SameSite Strict, and HTTPS makes them Secure. Mutations require a CSRF token from the session. Request URLs, payloads, cookies, tokens and database strings are excluded from application logs. Unknown public API routes return JSON 404.
 
-Current limits: OCR is review-only; structured screenshot extraction and email verification remain pending. Manual result entry is available with original screenshots; the system does not claim reliable image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.
+Current limits: OCR is review-only; structured screenshot extraction remains pending. Manual result entry is available with original screenshots; the system does not claim reliable image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.
