@@ -1,5 +1,11 @@
 # Implemented API contracts
 
+## October 20 additions
+
+- `POST /auth/change-password`: signed-in user supplies current and new passwords with CSRF. Five attempts per 15 minutes; a successful change revokes all sessions and requires a fresh sign-in. `/auth/me` returns a stable CSRF token for the session so other open tabs do not invalidate forms.
+- `GET /admin/tournaments/:id/finalization-history`: immutable finalization and reopening history for organizers.
+- `POST /admin/tournaments/:id/reopen`: super admin only; Completed event, expected version and reason required. Withdraws the current public podium, preserves the former finalization, records an audit/reopening event and recomputes a review snapshot from frozen rules. The normal checklist and finalize path apply again.
+
 ## October 19 additions
 
 - `POST /admin/evidence/:id/ocr`, `GET /admin/evidence/:id/ocr`: admin-only local reading queue and status. Duplicate requests reuse the same job; the worker has leases and three attempts. Output never modifies scores or confirms identities.
@@ -14,7 +20,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 11. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 18. |
 | GET `/meta/config` | Public | Safe configuration; private evidence and payment-proof uploads available, registration available per event. |
 | POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |
@@ -72,4 +78,4 @@ Scoring accepts non-negative decimal strings with up to three decimal places, a 
 
 Errors carry a code, plain message and server-generated UUID `correlation_id`. Invalid rule fields include `details`. CORS accepts exactly `WEB_ORIGIN`; session cookies are HttpOnly and SameSite Strict, and HTTPS makes them Secure. Mutations require a CSRF token from the session. Request URLs, payloads, cookies, tokens and database strings are excluded from application logs. Unknown public API routes return JSON 404.
 
-Current limits: OCR, captain-supplied dispute evidence, rescheduling, reopening and recovery operations remain pending. Manual result entry is available with original screenshots; the system does not claim image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.
+Current limits: OCR is review-only; structured screenshot extraction, captain-supplied dispute evidence, account recovery and email verification remain pending. Manual result entry is available with original screenshots; the system does not claim reliable image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.

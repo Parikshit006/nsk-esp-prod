@@ -6,6 +6,7 @@ import type { Config } from './config.js';
 
 const loginSchema=z.object({email:z.email().max(254),password:z.string().min(1).max(1024)}).strict();
 const signupSchema=loginSchema.extend({display_name:z.string().trim().min(2).max(80),account_type:z.enum(['captain','member']).default('captain')});
+const changePasswordSchema=z.object({current_password:z.string().min(1).max(1024),new_password:z.string().min(12).max(1024)}).strict();
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const passwordOptions={N:32768,r:8,p:1,maxmem:64*1024*1024};
 const derive=(password:string,salt:string)=>new Promise<Buffer>((resolve,reject)=>scrypt(password,salt,64,passwordOptions,(error,key)=>error?reject(error):resolve(key)));
@@ -65,13 +66,20 @@ export function authRouter(config:Config,pool:Pool) {
       return error(res,401,'UNAUTHENTICATED','Email or password is incorrect.');
     }
     await pool.query('DELETE FROM login_attempts WHERE key=$1',[key]);
-    const token=randomBytes(32).toString('hex');const csrf=randomBytes(32).toString('hex');
-    await pool.query("INSERT INTO sessions(id,user_id,token_hash,csrf_hash,expires_at) VALUES($1,$2,$3,$4,now()+interval '8 hours')",[randomUUID(),user.id,digest(token),digest(csrf)]);
+    const token=randomBytes(32).toString('hex');const csrf=digest(`csrf|${token}`);
+    const client=await pool.connect();try{
+      await client.query('BEGIN');
+      // Serialize session creation with password changes so an old-password login cannot escape revocation.
+      const current=await client.query<{password_hash:string}>('SELECT password_hash FROM accounts WHERE id=$1 FOR SHARE',[user.id]);
+      if(current.rows[0]?.password_hash!==user.password_hash){await client.query('ROLLBACK');return error(res,401,'UNAUTHENTICATED','Email or password is incorrect.');}
+      await client.query("INSERT INTO sessions(id,user_id,token_hash,csrf_hash,expires_at) VALUES($1,$2,$3,$4,now()+interval '8 hours')",[randomUUID(),user.id,digest(token),digest(csrf)]);
+      await client.query('COMMIT');
+    }catch(caught){await client.query('ROLLBACK');throw caught;}finally{client.release();}
     setCookie(res,token,config);
     return res.json({data:{user:{id:user.id,email:user.email,role:user.role},csrf_token:csrf}});
   });
-  router.get('/me',requireAccount(pool),async(_req,res)=>{
-    const csrf=randomBytes(32).toString('hex');
+  router.get('/me',requireAccount(pool),async(req,res)=>{
+    const csrf=digest(`csrf|${cookie(req)}`);
     await pool.query('UPDATE sessions SET csrf_hash=$1 WHERE id=$2',[digest(csrf),res.locals.sessionId]);
     return res.json({data:{user:res.locals.admin,csrf_token:csrf}});
   });
@@ -79,6 +87,21 @@ export function authRouter(config:Config,pool:Pool) {
     await pool.query('UPDATE sessions SET revoked_at=now() WHERE id=$1',[res.locals.sessionId]);
     setCookie(res,'',config,0);
     return res.status(204).end();
+  });
+  router.post('/change-password',requireAccount(pool),requireCsrf(pool),async(req,res)=>{
+    const body=changePasswordSchema.safeParse(req.body);if(!body.success)return error(res,400,'VALIDATION_FAILED','Provide your current password and a new password of at least 12 characters.');
+    const key=digest(`password-change|${res.locals.admin.id}`);
+    const limit=await pool.query<{attempts:number}>("INSERT INTO login_attempts(key,attempts,window_started_at) VALUES($1,1,now()) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN login_attempts.window_started_at<now()-interval '15 minutes' THEN 1 ELSE login_attempts.attempts+1 END,window_started_at=CASE WHEN login_attempts.window_started_at<now()-interval '15 minutes' THEN now() ELSE login_attempts.window_started_at END RETURNING attempts",[key]);
+    if(limit.rows[0]!.attempts>5)return error(res,429,'RATE_LIMITED','Too many attempts. Try again later.');
+    const client=await pool.connect();try{await client.query('BEGIN');
+      const found=await client.query<{password_hash:string}>('SELECT password_hash FROM accounts WHERE id=$1 FOR UPDATE',[res.locals.admin.id]);
+      if(!found.rows[0]||!await verifyPassword(body.data.current_password,found.rows[0].password_hash)){await client.query('ROLLBACK');return error(res,401,'UNAUTHENTICATED','Current password is incorrect.');}
+      const hash=await hashPassword(body.data.new_password);
+      await client.query('UPDATE accounts SET password_hash=$1 WHERE id=$2',[hash,res.locals.admin.id]);
+      await client.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL',[res.locals.admin.id]);
+      await client.query("INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,'account.password_changed','account',$2,$3)",[randomUUID(),res.locals.admin.id,JSON.stringify({sessions_revoked:true})]);
+      await client.query('DELETE FROM login_attempts WHERE key=$1',[key]);await client.query('COMMIT');setCookie(res,'',config,0);return res.json({data:{changed:true,sign_in_required:true}});
+    }catch(caught){await client.query('ROLLBACK');throw caught;}finally{client.release();}
   });
   return router;
 }

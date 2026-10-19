@@ -1,0 +1,27 @@
+import {afterAll,beforeAll,it,expect} from 'vitest';
+import request from 'supertest';
+import {Pool} from 'pg';
+import {createApp} from '../apps/api/src/app.js';
+import {createAdmin} from '../apps/api/src/auth.js';
+import {readConfig} from '../apps/api/src/config.js';
+import {migrate} from '../apps/api/src/migrations.js';
+const url=process.env.DATABASE_URL_TEST;if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('A separate _test database is required.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`,admin=new Pool({connectionString:url}),pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const app=createApp(readConfig({NODE_ENV:'test',DATABASE_URL:url,WEB_ORIGIN:'http://localhost:5173',READINESS_TOKEN:'account-test-token-with-more-than-32-characters'}),pool);
+beforeAll(async()=>{await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);await createAdmin(pool,'security@example.test','original-password-1234');});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+it('keeps CSRF stable across tabs and revokes all sessions after a password change',async()=>{
+ const first=request.agent(app),second=request.agent(app),login={email:'security@example.test',password:'original-password-1234'};
+ const session=(await first.post('/api/v1/auth/login').send(login)).body.data;await second.post('/api/v1/auth/login').send(login);
+ expect((await first.get('/api/v1/auth/me')).body.data.csrf_token).toBe(session.csrf_token);expect((await first.get('/api/v1/auth/me')).body.data.csrf_token).toBe(session.csrf_token);
+ const path='/api/v1/auth/change-password',body={current_password:login.password,new_password:'replacement-password-1234'};
+ expect((await first.post(path).send(body)).status).toBe(403);
+ for(let i=0;i<5;i++)expect((await first.post(path).set('X-CSRF-Token',session.csrf_token).send({...body,current_password:'incorrect'})).status).toBe(401);
+ expect((await first.post(path).set('X-CSRF-Token',session.csrf_token).send(body)).status).toBe(429);
+ await pool.query("UPDATE login_attempts SET window_started_at=now()-interval '16 minutes'");
+ expect((await first.post(path).set('X-CSRF-Token',session.csrf_token).send(body)).body.data).toEqual({changed:true,sign_in_required:true});
+ expect((await first.get('/api/v1/auth/me')).status).toBe(401);expect((await second.get('/api/v1/auth/me')).status).toBe(401);
+ expect((await first.post('/api/v1/auth/login').send(login)).status).toBe(401);
+ expect((await first.post('/api/v1/auth/login').send({...login,password:body.new_password})).status).toBe(200);
+ const events=await pool.query("SELECT after_value FROM audit_events WHERE action='account.password_changed'");expect(events.rowCount).toBe(1);expect(JSON.stringify(events.rows)).not.toContain('password-1234');
+});

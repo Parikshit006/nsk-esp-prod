@@ -232,6 +232,13 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByLabel('Final decision reason').fill('Checked the published result and final standings against the screenshot.');
   await page.getByRole('button',{name:'Finalize tournament'}).click();
   await expect(page.getByText('Tournament completed. The final podium is public.')).toBeVisible();
+  await page.getByLabel('Reopening reason').fill('Platform administrator is performing a controlled final review.');
+  await page.getByRole('button',{name:'Reopen for final review'}).click();
+  await expect(page.getByText('Event reopened for final review. The earlier podium remains in history and is no longer the current public podium.')).toBeVisible();
+  await page.getByLabel('Final decision reason').fill('All records rechecked after the controlled reopening.');
+  await page.getByRole('button',{name:'Finalize tournament'}).click();
+  await expect(page.getByText('Tournament completed. The final podium is public.')).toBeVisible();
+  await expect(page.getByText('Published podium history (2)')).toBeVisible();
   await page.getByLabel('Archive reason').fill('Organizer completed the final review and archived the event.');
   await page.getByRole('button',{name:'Archive tournament'}).click();
   await expect(page.getByText('Tournament archived. The final podium remains public.')).toBeVisible();
