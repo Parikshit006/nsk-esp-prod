@@ -5,7 +5,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 9. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 10. |
 | GET `/meta/config` | Public | Safe configuration; private evidence and payment-proof uploads available, registration available per event. |
 | POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |
@@ -49,9 +49,13 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | GET, POST `/admin/matches/:id/results` | Admin session; POST needs CSRF | List version metadata or save a complete manual draft linked to current-attempt evidence and frozen rules. |
 | GET `/admin/results/:id`, POST `/admin/results/:id/verify`, POST `/admin/results/:id/publish` | Admin session; POST needs CSRF | Inspect draft; score with configured rules after verification; publish atomically with a new standings snapshot. |
 | GET `/matches/:id/results`, GET `/tournaments/:id/standings` | Public | Only published match versions and standings snapshots; pending drafts stay private. |
+| GET `/admin/tournaments/:id/finalization-checklist` | Admin session | Match/result blockers, latest immutable standings snapshot, unresolved podium tie groups and recorded decisions. |
+| PUT `/admin/tournaments/:id/tie-resolution` | Admin session + CSRF | Order every team in an unresolved podium tie for the current snapshot, with reason and optimistic tournament version. |
+| POST `/admin/tournaments/:id/finalize` | Admin session + CSRF | Complete only after all matches and results are settled and podium ties are decided; store immutable podium from the reviewed snapshot. |
+| GET `/tournaments/:id/podium` | Public | Final podium only for Completed or Archived tournaments. |
 
 Scoring accepts non-negative decimal strings with up to three decimal places, a consecutive placement table, optional kill cap, ordered tie-break fields ending in an admin decision, disqualification policy and cancelled-match policy. The application has **no official or implied default points table**. Each template revision and tournament ruleset stores its own copy of configuration. PostgreSQL triggers prevent changing those copies or deleting audit events.
 
 Errors carry a code, plain message and server-generated UUID `correlation_id`. Invalid rule fields include `details`. CORS accepts exactly `WEB_ORIGIN`; session cookies are HttpOnly and SameSite Strict, and HTTPS makes them Secure. Mutations require a CSRF token from the session. Request URLs, payloads, cookies, tokens and database strings are excluded from application logs. Unknown public API routes return JSON 404.
 
-Current limits: OCR, disqualification decisions, finalization, tie decisions and recovery operations remain pending. Manual result entry is available with original screenshots; the system does not claim image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.
+Current limits: OCR, disqualification, match cancellation, disputes, reopening/archive and recovery operations remain pending. Manual result entry is available with original screenshots; the system does not claim image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.

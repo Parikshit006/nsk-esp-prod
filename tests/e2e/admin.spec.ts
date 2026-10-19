@@ -207,9 +207,15 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await expect(page.getByText('Result verified and scored.')).toBeVisible();
   await page.getByRole('button',{name:'Publish result'}).click();
   await expect(page.getByText('Result published. Standings updated.')).toBeVisible();
+  await page.getByRole('button',{name:'Refresh final review'}).click();
+  await expect(page.getByText('Event state:')).toContainText('Finalizing');
+  await page.getByLabel('Final decision reason').fill('Checked the published result and final standings against the screenshot.');
+  await page.getByRole('button',{name:'Finalize tournament'}).click();
+  await expect(page.getByText('Tournament completed. The final podium is public.')).toBeVisible();
   await page.goto('/');
   await page.getByRole('article').filter({hasText:`October cup ${suffix}`}).getByRole('link',{name:'View event and rules'}).click();
   await expect(page.getByRole('heading',{name:'Standings'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Final podium'})).toBeVisible();
   await expect(page.getByRole('row',{name:/Blue Squad/})).toBeVisible();
   await expect(page.getByRole('heading',{name:'Match 1 · Bermuda'})).toBeVisible();
   expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
