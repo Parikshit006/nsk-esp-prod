@@ -4,6 +4,7 @@
 
 - `POST /auth/request-password-reset`, `POST /auth/reset-password`: generic email request response with per-email/IP throttling; one-use 30-minute email link resets the password, consumes outstanding links and revokes all sessions. Production requires SMTP settings; no email is sent by the local tests.
 - `POST /auth/verify-email`, `POST /auth/resend-verification`: one-use 24-hour email verification for new accounts, with throttled resend. Unverified captains and members can sign in to resend but cannot mutate tournament records or view protected room details. Local development without SMTP auto-verifies signups; production requires email delivery configuration.
+- JSON POST/PUT/PATCH/DELETE under `/api/v1` may carry a 16–128 character `Idempotency-Key`. For authenticated writes with CSRF, the same account, role, path and body replay the saved 2xx response; a different request using that key returns 409. An in-progress first request returns 409 with `Retry-After`. Failed responses release the key. Completed responses become eligible for lazy cleanup after 24 hours on that account's next keyed write. Auth routes, raw uploads and roster invitation-link creation are excluded; a crashed in-progress request needs operator reconciliation before a same-key retry can be trusted.
 - `GET /admin/organizers`, `POST /admin/organizers`, `POST /admin/organizers/:id/invite`, `POST /admin/organizers/:id/status`: super-admin organizer list, email activation, resend and reasoned enable/disable. An organizer cannot sign in before activation; disabling revokes sessions and open reset links.
 - `GET/POST /registrations/:id/roster-change-requests`, `GET /admin/tournaments/:id/roster-change-requests`, `POST /admin/roster-change-requests/:id/decision`: captain requests a change after registration closes and before room release or match start; organizer approval applies it, invalidates affected player links and prior team/eligibility review, and triggers notices. Rejection preserves the live roster.
 - `POST /admin/registrations/:id/release-slot`: reasoned organizer release before match operations, with an immutable slot history and notification. Existing slot assignment accepts a released registration for reassignment.
@@ -26,7 +27,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 23. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 24. |
 | GET `/meta/config` | Public | Safe configuration; private evidence and payment-proof uploads available, registration available per event. |
 | POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |

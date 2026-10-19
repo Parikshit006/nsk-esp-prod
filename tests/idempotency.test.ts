@@ -1,0 +1,28 @@
+import {afterAll,beforeAll,it,expect} from 'vitest';
+import request from 'supertest';
+import {Pool} from 'pg';
+import {createApp} from '../apps/api/src/app.js';
+import {readConfig} from '../apps/api/src/config.js';
+import {migrate} from '../apps/api/src/migrations.js';
+const url=process.env.DATABASE_URL_TEST;if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('A separate _test database is required.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`,admin=new Pool({connectionString:url}),pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const app=createApp(readConfig({NODE_ENV:'test',DATABASE_URL:url,WEB_ORIGIN:'http://localhost:5173',READINESS_TOKEN:'idempotency-test-token-with-more-than-32-characters'}),pool);
+beforeAll(async()=>{await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+it('replays successful JSON writes for the same account and rejects key reuse with changed content',async()=>{
+ const agent=request.agent(app),other=request.agent(app),key='same-request-1234567890';
+ await agent.post('/api/v1/auth/register').send({email:'idempotent@example.test',display_name:'First Captain',password:'first-password-1234'});
+ await other.post('/api/v1/auth/register').send({email:'other-idempotent@example.test',display_name:'Other Captain',password:'other-password-1234'});
+ const csrf=(await agent.post('/api/v1/auth/login').send({email:'idempotent@example.test',password:'first-password-1234'})).body.data.csrf_token;
+ const otherCsrf=(await other.post('/api/v1/auth/login').send({email:'other-idempotent@example.test',password:'other-password-1234'})).body.data.csrf_token;
+ const send=(name:string,token=csrf,actor=agent)=>actor.post('/api/v1/teams').set('X-CSRF-Token',token).set('Idempotency-Key',key).send({name});
+ expect((await agent.post('/api/v1/teams').set('Idempotency-Key',key).send({name:'Replay Squad'})).status).toBe(403);
+ const first=await send('Replay Squad');expect(first.status).toBe(201);
+ const replay=await send('Replay Squad');expect(replay.status).toBe(201);expect(replay.body).toEqual(first.body);expect(replay.headers['idempotency-replayed']).toBe('true');
+ const conflict=await send('Different Squad');expect(conflict.status).toBe(409);expect(conflict.body.error.code).toBe('IDEMPOTENCY_CONFLICT');
+ const account=(await pool.query('SELECT id FROM accounts WHERE email=$1',['idempotent@example.test'])).rows[0].id;
+ await pool.query("UPDATE accounts SET role='member' WHERE id=$1",[account]);expect((await send('Replay Squad')).status).toBe(403);await pool.query("UPDATE accounts SET role='captain' WHERE id=$1",[account]);
+ const otherFirst=await send('Other Squad',otherCsrf,other);expect(otherFirst.status).toBe(201);
+ expect((await pool.query("SELECT count(*)::int n FROM teams WHERE name='Replay Squad'")).rows[0].n).toBe(1);
+ expect((await pool.query('SELECT count(*)::int n FROM idempotency_requests')).rows[0].n).toBe(2);
+});
