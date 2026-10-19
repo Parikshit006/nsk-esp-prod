@@ -6,16 +6,17 @@ import { registrationInputSchema, rosterInputSchema, submitRegistrationSchema, t
 import { requireAccount, requireCsrf } from './auth.js';
 
 const uuid=z.uuid();
+const withdrawSchema=z.object({expected_version:z.number().int().positive(),reason:z.string().trim().min(10).max(1000)}).strict();
 function fail(res:Response,status:number,code:string,message:string,details?:unknown){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId,...(details?{details}:{})}});}
 async function tx<T>(pool:Pool,run:(client:PoolClient)=>Promise<T>){const client=await pool.connect();try{await client.query('BEGIN');const value=await run(client);await client.query('COMMIT');return value;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
 async function audit(client:PoolClient,actor:string,action:string,type:string,id:string,before:unknown,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6,$7)',[randomUUID(),actor,action,type,id,before===null?null:JSON.stringify(before),after===null?null:JSON.stringify(after)]);}
 const key=(value:string)=>value.normalize('NFKC').trim().toLocaleLowerCase('en');
-type Registration={id:string;tournament_id:string;team_id:string;status:string;version:number;team_size:number;captain_id:string;team_name:string;tournament_name:string;payment_status:string;approval_status:string;slot_status:string;fee_minor:number;currency:string;payment_instructions:string;payment_proof_max_bytes:number|null;payment_recheck_required:boolean};
-async function ownedRegistration(client:PoolClient,id:string,accountId:string,lock:boolean){const result=await client.query<Registration>(`SELECT r.id,r.tournament_id,r.team_id,r.status,r.version,t.team_size,t.name tournament_name,t.fee_minor,t.currency,t.payment_instructions,t.payment_proof_max_bytes,teams.captain_id,teams.name team_name,r.payment_status,r.payment_recheck_required,r.approval_status,r.slot_status FROM registrations r JOIN tournaments t ON t.id=r.tournament_id JOIN teams ON teams.id=r.team_id WHERE r.id=$1 AND teams.captain_id=$2 ${lock?'FOR UPDATE OF r':''}`,[id,accountId]);return result.rows[0]??null;}
+type Registration={id:string;tournament_id:string;team_id:string;status:string;version:number;team_size:number;captain_id:string;team_name:string;tournament_name:string;tournament_status:string;payment_status:string;approval_status:string;slot_status:string;fee_minor:number;currency:string;payment_instructions:string;payment_proof_max_bytes:number|null;payment_recheck_required:boolean};
+async function ownedRegistration(client:PoolClient,id:string,accountId:string,lock:boolean){const result=await client.query<Registration>(`SELECT r.id,r.tournament_id,r.team_id,r.status,r.version,t.team_size,t.name tournament_name,t.status tournament_status,t.fee_minor,t.currency,t.payment_instructions,t.payment_proof_max_bytes,teams.captain_id,teams.name team_name,r.payment_status,r.payment_recheck_required,r.approval_status,r.slot_status FROM registrations r JOIN tournaments t ON t.id=r.tournament_id JOIN teams ON teams.id=r.team_id WHERE r.id=$1 AND teams.captain_id=$2 ${lock?'FOR UPDATE OF r':''}`,[id,accountId]);return result.rows[0]??null;}
 export function participantRouter(pool:Pool){
   const router=Router();
   router.use((req,res,next)=>{
-    if(!(/^\/(teams|me\/(teams|registrations)|registrations\/[^/]+(\/roster|\/submit)?|tournaments\/[^/]+\/registrations)$/.test(req.path)))return next();
+    if(!(/^\/(teams|me\/(teams|registrations)|registrations\/[^/]+(\/roster|\/submit|\/withdraw)?|tournaments\/[^/]+\/registrations)$/.test(req.path)))return next();
     return requireAccount(pool)(req,res,next);
   });
   router.use((req,res,next)=>req.method==='GET'||!res.locals.admin?next():requireCsrf(pool)(req,res,next));
@@ -81,6 +82,24 @@ export function participantRouter(pool:Pool){
       return {id:id.data,status:'Submitted',version:parsed.data.expected_version+1,payment_status:registration.payment_status,approval_status:registration.approval_status,slot_status:registration.slot_status};
     });
     if(data===null)return fail(res,404,'NOT_FOUND','Registration not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Registration changed. Reload and try again.');if(data==='locked')return fail(res,409,'INVALID_TRANSITION','Registration cannot be submitted now.');if(data==='closed')return fail(res,409,'NOT_ELIGIBLE','Registration is closed.');if(data==='incomplete')return fail(res,409,'GATE_BLOCKED','Complete every roster place and link your captain entry before submitting.');return res.json({data});
+  });
+  router.post('/registrations/:id/withdraw',async(req,res)=>{
+    const id=uuid.safeParse(req.params.id),body=withdrawSchema.safeParse(req.body);if(!id.success||!body.success)return fail(res,400,'VALIDATION_FAILED','Give a reason and current registration version.');
+    const data=await tx(pool,async client=>{
+      const peek=await ownedRegistration(client,id.data,res.locals.admin.id,false);if(!peek)return null;
+      const tournament=await client.query<{status:string}>('SELECT status FROM tournaments WHERE id=$1 FOR UPDATE',[peek.tournament_id]);
+      const reg=await ownedRegistration(client,id.data,res.locals.admin.id,true);if(!reg)return null;if(reg.version!==body.data.expected_version)return 'stale' as const;
+      if(!['Draft','Submitted','NeedsCorrection'].includes(reg.status)||!['RegistrationOpen','RegistrationClosed'].includes(tournament.rows[0]?.status??''))return 'locked' as const;
+      const started=await client.query("SELECT 1 FROM match_attempts a JOIN matches m ON m.id=a.match_id WHERE m.tournament_id=$1 LIMIT 1",[reg.tournament_id]);if(started.rowCount)return 'started' as const;
+      const slot=await client.query<{id:string;slot_no:number}>("SELECT id,slot_no FROM slots WHERE registration_id=$1 AND status='Assigned' FOR UPDATE",[reg.id]);
+      if(slot.rows[0])await client.query("UPDATE slots SET status='Released',released_by=$1,released_at=now(),release_reason=$2 WHERE id=$3",[res.locals.admin.id,body.data.reason,slot.rows[0].id]);
+      await client.query('UPDATE roster_invitations SET revoked_at=now() WHERE registration_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL',[reg.id]);
+      await client.query("UPDATE roster_entries SET status='Removed',version=version+1 WHERE registration_id=$1 AND status='Active'",[reg.id]);
+      await client.query("UPDATE registrations SET status='Withdrawn',slot_status=$1,version=version+1 WHERE id=$2",[slot.rows[0]?'Released':reg.slot_status,reg.id]);
+      await audit(client,res.locals.admin.id,'registration.withdrawn','registration',reg.id,{status:reg.status,slot_status:reg.slot_status},{status:'Withdrawn',slot_status:slot.rows[0]?'Released':reg.slot_status,reason:body.data.reason,refund:'handled outside platform'});
+      return {id:reg.id,status:'Withdrawn',slot_status:slot.rows[0]?'Released':reg.slot_status,version:reg.version+1};
+    });
+    if(data===null)return fail(res,404,'NOT_FOUND','Registration not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Registration changed. Reload and try again.');if(data==='locked')return fail(res,409,'INVALID_TRANSITION','Withdrawal is available only before match operations begin.');if(data==='started')return fail(res,409,'GATE_BLOCKED','A match has started; ask the organizer to resolve this team under event rules.');return res.json({data});
   });
   return router;
 }

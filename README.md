@@ -47,4 +47,4 @@ Browser tests launch the API in a unique schema in `DATABASE_URL_TEST` and clean
 - `packages/shared`: validated response contracts, pure exact-decimal preview scoring and exact status catalog.
 - `tests`: unit/database integration and desktop/mobile browser acceptance checks.
 
-Next phases: disputes, withdrawals, rescheduling and reopen/archive controls; then measured OCR assistance. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.
+Next phases: disputes, roster change review, rescheduling and reopen/archive controls; then measured OCR assistance. Captains can now withdraw before matches begin, releasing their slot. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.

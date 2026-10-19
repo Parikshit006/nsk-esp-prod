@@ -32,6 +32,8 @@ export function matchRouter(pool:Pool){
         next='Ready';
       }else if(action==='start'){
         if(match.status!=='Ready'||!['RegistrationClosed','InProgress'].includes(match.tournament_status))return 'state' as const;
+        const slots=await client.query<{n:number}>("SELECT count(*)::int n FROM slots s JOIN registrations r ON r.id=s.registration_id WHERE s.tournament_id=$1 AND s.status='Assigned' AND r.approval_status='Approved' AND r.slot_status='Assigned' AND r.status='Submitted' AND r.payment_status IN ('NotRequired','Verified','Waived') AND NOT r.payment_recheck_required",[match.tournament_id]);
+        if((slots.rows[0]?.n??0)<2)return 'slots' as const;
         await client.query("UPDATE tournament_rulesets SET status='Frozen' WHERE tournament_id=$1 AND status='Confirmed'",[match.tournament_id]);
         if(match.tournament_status==='RegistrationClosed')await client.query("UPDATE tournaments SET status='InProgress',version=version+1 WHERE id=$1",[match.tournament_id]);next='InProgress';
       }else if(action==='finish'){

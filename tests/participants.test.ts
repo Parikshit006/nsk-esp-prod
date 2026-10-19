@@ -44,5 +44,11 @@ describe('Captain registration and roster gates',()=>{
     const approval=await adminPost(`/api/v1/admin/registrations/${rid}/decision`,{expected_version:6,decision:'approve'});expect(approval.status).toBe(200);expect(approval.body.data.approval_status).toBe('Approved');
     const assigned=await operator.put(`/api/v1/admin/tournaments/${eventId}/slots/1`).set('X-CSRF-Token',adminCsrf).send({expected_version:7,registration_id:rid});expect(assigned.status).toBe(201);
     const final=await agent.get(`/api/v1/registrations/${rid}`);expect(final.body.data).toMatchObject({payment_status:'NotRequired',approval_status:'Approved',slot_status:'Assigned'});
+    expect((await post(`/api/v1/registrations/${rid}/withdraw`,{expected_version:7,reason:'Captain is withdrawing before the event begins.'})).status).toBe(409);
+    const withdrawn=await post(`/api/v1/registrations/${rid}/withdraw`,{expected_version:8,reason:'Captain is withdrawing before the event begins.'});expect(withdrawn.status).toBe(200);expect(withdrawn.body.data).toMatchObject({status:'Withdrawn',slot_status:'Released',version:9});
+    expect((await operator.get(`/api/v1/admin/tournaments/${eventId}/slots`)).body.data).toHaveLength(0);
+    expect((await agent.get(`/api/v1/registrations/${rid}`)).body.data.roster).toHaveLength(0);
+    expect((await post(`/api/v1/registrations/${rid}/withdraw`,{expected_version:9,reason:'Attempting to withdraw twice after release.'})).status).toBe(409);
+    const replacement=await post(`/api/v1/tournaments/${eventId}/registrations`,{team_id:team.body.data.id});expect(replacement.status).toBe(201);
   });
 });
