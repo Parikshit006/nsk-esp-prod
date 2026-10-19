@@ -201,6 +201,10 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByLabel('Original result screenshot (PNG or JPEG, up to 5 MB)').setInputFiles({name:'result.png',mimeType:'image/png',buffer:screenshot});
   await page.getByRole('button',{name:'Upload screenshot'}).click();
   await expect(page.getByText('Original screenshot stored for this attempt.')).toBeVisible();
+  const placementFields=page.getByLabel(/^Placement for /);
+  for(let i=0;i<await placementFields.count();i++) await placementFields.nth(i).fill(String(i+1));
+  const killFields=page.getByLabel(/^Kills · /);
+  for(let i=0;i<await killFields.count();i++) await killFields.nth(i).fill('0');
   await page.getByLabel('Evidence review or correction reason').fill('Manually checked all teams against the original screenshot.');
   await page.getByRole('button',{name:'Save manual draft'}).click();
   await expect(page.getByText('Manual result version 1 saved for verification.')).toBeVisible();

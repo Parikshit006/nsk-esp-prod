@@ -6,3 +6,4 @@ minimumReleaseAge: 0
 allowBuilds:
   esbuild: true
   sharp: true
+  tesseract.js: false

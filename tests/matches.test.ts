@@ -6,6 +6,7 @@ import { readConfig } from '../apps/api/src/config.js';
 import { createAdmin } from '../apps/api/src/auth.js';
 import { migrate } from '../apps/api/src/migrations.js';
 import sharp from 'sharp';
+import { runOcrJob } from '../apps/api/src/ocr.js';
 
 const url=process.env.DATABASE_URL_TEST;
 if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('DATABASE_URL_TEST must be a separate _test database.');
@@ -44,6 +45,26 @@ it('guards readiness, freezes rules on start and preserves attempts on interrupt
   const uploaded=await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot);expect(uploaded.status).toBe(201);const evidence=uploaded.body.data.id as string;
   expect((await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot)).status).toBe(409);
   const evidenceResponse=await operator.get(`/api/v1/admin/evidence/${evidence}/image`);expect(evidenceResponse.status).toBe(200);expect(evidenceResponse.headers['content-type']).toContain('image/png');
+  const ocrPath=`/api/v1/admin/evidence/${evidence}/ocr`;
+  expect((await request(app).get(ocrPath)).status).toBe(401);
+  expect((await operator.post(ocrPath)).status).toBe(403);
+  const queued=await operator.post(ocrPath).set('X-CSRF-Token',csrf);expect(queued.status).toBe(202);
+  expect((await operator.post(ocrPath).set('X-CSRF-Token',csrf)).body.data.id).toBe(queued.body.data.id);
+  let reads=0;
+  const reader=async()=>{reads++;return {text:'IGN1 3',confidence:60,lines:[],warning:'Review required'};};
+  await Promise.all([runOcrJob(pool,reader),runOcrJob(pool,reader)]);
+  expect(reads).toBe(1);
+  expect((await operator.get(ocrPath)).body.data).toMatchObject({status:'Succeeded',output:{text:'IGN1 3'}});
+  // A success never becomes a new attempt when a client retries its request.
+  await operator.post(ocrPath).set('X-CSRF-Token',csrf);
+  expect(await runOcrJob(pool,reader)).toBe(false);
+  await pool.query("UPDATE ocr_jobs SET status='Running',output=NULL,attempts=1,lease_until=now()-interval '1 second' WHERE evidence_id=$1",[evidence]);
+  expect(await runOcrJob(pool,async()=>{throw new Error('private engine diagnostic');})).toBe(true);
+  expect((await operator.get(ocrPath)).body.data).toMatchObject({status:'Queued',attempts:2});
+  await runOcrJob(pool,async()=>{throw new Error('private engine diagnostic');});
+  const failedJob=await operator.get(ocrPath);expect(failedJob.body.data).toMatchObject({status:'Failed',attempts:3});
+  expect(JSON.stringify(failedJob.body)).not.toContain('private engine diagnostic');
+  expect(await runOcrJob(pool,reader)).toBe(false);
   const rows=(reverse=false)=>registrations.map((registration,index)=>({registration_id:registration,placement:reverse?2-index:index+1,player_kills:[{roster_entry_id:entries[index],kills:index+1}],adjustment:reverse&&index===0?'6':'0'}));
   const bad=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:9,evidence_id:evidence,reason:'Manual review of screenshot',rows:rows().slice(0,1)});expect(bad.status).toBe(409);
   const drafted=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:9,evidence_id:evidence,reason:'Manual review of screenshot',rows:rows()});expect(drafted.status).toBe(201);const resultId=drafted.body.data.id as string;
