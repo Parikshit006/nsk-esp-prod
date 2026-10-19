@@ -54,6 +54,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | GET `/admin/tournaments/:id/finalization-checklist` | Admin session | Match/result blockers, latest immutable standings snapshot, unresolved podium tie groups and recorded decisions. |
 | PUT `/admin/tournaments/:id/tie-resolution` | Admin session + CSRF | Order every team in an unresolved podium tie for the current snapshot, with reason and optimistic tournament version. |
 | POST `/admin/tournaments/:id/finalize` | Admin session + CSRF | Complete only after all matches and results are settled and podium ties are decided; store immutable podium from the reviewed snapshot. |
+| POST `/admin/tournaments/:id/transition` (`archive`) | Admin session + CSRF | Require the completed event's current version and an archive reason; keep its final podium publicly readable. |
 | GET `/tournaments/:id/podium` | Public | Final podium only for Completed or Archived tournaments. |
 
 Scoring accepts non-negative decimal strings with up to three decimal places, a consecutive placement table, optional kill cap, ordered tie-break fields ending in an admin decision, disqualification policy and cancelled-match policy. The application has **no official or implied default points table**. Each template revision and tournament ruleset stores its own copy of configuration. PostgreSQL triggers prevent changing those copies or deleting audit events.

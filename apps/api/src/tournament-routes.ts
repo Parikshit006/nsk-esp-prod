@@ -65,6 +65,7 @@ export function adminTournamentRouter(pool:Pool){
       else if(action==='open_registration'&&tournament.status==='Published'){const now=Date.now();if(!tournament.registration_open_at||!tournament.registration_close_at||now<tournament.registration_open_at.getTime()||now>=tournament.registration_close_at.getTime())return {blocked:[{field:'registration_window',issue:'Registration can open only within its configured window.'}]};next='RegistrationOpen';}
       else if(action==='close_registration'&&tournament.status==='RegistrationOpen')next='RegistrationClosed';
       else if(action==='cancel'&&['Draft','Published','RegistrationOpen','RegistrationClosed','InProgress'].includes(tournament.status))next='Cancelled';
+      else if(action==='archive'&&tournament.status==='Completed')next='Archived';
       else return 'invalid' as const;
       await client.query('UPDATE tournaments SET status=$1,version=version+1 WHERE id=$2',[next,id.data]);
       await audit(client,res.locals.admin.id,`tournament.${action}`,id.data,{status:tournament.status},{status:next,reason:parsed.data.reason??null});

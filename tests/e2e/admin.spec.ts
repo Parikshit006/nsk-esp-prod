@@ -216,6 +216,9 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByLabel('Final decision reason').fill('Checked the published result and final standings against the screenshot.');
   await page.getByRole('button',{name:'Finalize tournament'}).click();
   await expect(page.getByText('Tournament completed. The final podium is public.')).toBeVisible();
+  await page.getByLabel('Archive reason').fill('Organizer completed the final review and archived the event.');
+  await page.getByRole('button',{name:'Archive tournament'}).click();
+  await expect(page.getByText('Tournament archived. The final podium remains public.')).toBeVisible();
   await page.goto('/');
   await page.getByRole('article').filter({hasText:`October cup ${suffix}`}).getByRole('link',{name:'View event and rules'}).click();
   await expect(page.getByRole('heading',{name:'Standings'})).toBeVisible();

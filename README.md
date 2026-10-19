@@ -2,7 +2,7 @@
 
 Evidence-first college Free Fire MAX tournament platform. **Current delivery: audited specifications, tournament publication, reusable scoring rules, free and paid-event registration, organizer review and slots, protected room details, manual evidence-backed results, configurable disqualification, public standings and final podium. This is not yet launch-ready.** OCR assistance, disputes, recovery operations, and hosting remain unfinished.
 
-Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/decision-log.md), [delivery progress](docs/progress.md), and [implemented API contracts](docs/api-contracts.md). Original specifications are preserved at the repository root.
+Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/decision-log.md), [delivery progress](docs/progress.md), [implemented API contracts](docs/api-contracts.md), and the [provisional self-hosting plan](docs/self-hosting.md). Original specifications are preserved at the repository root.
 
 ## Local development
 
@@ -47,4 +47,4 @@ Browser tests launch the API in a unique schema in `DATABASE_URL_TEST` and clean
 - `packages/shared`: validated response contracts, pure exact-decimal preview scoring and exact status catalog.
 - `tests`: unit/database integration and desktop/mobile browser acceptance checks.
 
-Next phases: disputes, roster change review, rescheduling and reopen/archive controls; then measured OCR assistance. Captains can now withdraw before matches begin, releasing their slot. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.
+Next phases: disputes, roster change review, rescheduling and controlled reopening; then measured OCR assistance. Captains can now withdraw before matches begin, releasing their slot; an admin can archive a completed event while keeping its podium public. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.
