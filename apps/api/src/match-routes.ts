@@ -3,9 +3,11 @@ import { Router, type Response } from 'express';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import { requireAdmin, requireCsrf } from './auth.js';
+import { scoringRulesSchema } from '../../../packages/shared/rules.js';
+import { snapshot } from './result-routes.js';
 
 const uuid=z.uuid();
-const transitionSchema=z.object({expected_version:z.number().int().positive(),action:z.enum(['ready','start','finish','interrupt','restart']),reason:z.string().trim().min(10).max(1000).optional()}).strict().superRefine((value,ctx)=>{if(['interrupt','restart'].includes(value.action)&&!value.reason)ctx.addIssue({code:'custom',path:['reason'],message:'A reason is required.'});});
+const transitionSchema=z.object({expected_version:z.number().int().positive(),action:z.enum(['ready','start','finish','interrupt','restart','cancel']),reason:z.string().trim().min(10).max(1000).optional()}).strict().superRefine((value,ctx)=>{if(['interrupt','restart','cancel'].includes(value.action)&&!value.reason)ctx.addIssue({code:'custom',path:['reason'],message:'A reason is required.'});});
 function fail(res:Response,status:number,code:string,message:string){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId}});}
 async function tx<T>(pool:Pool,run:(client:PoolClient)=>Promise<T>){const client=await pool.connect();try{await client.query('BEGIN');const value=await run(client);await client.query('COMMIT');return value;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
 
@@ -37,13 +39,24 @@ export function matchRouter(pool:Pool){
       }else if(action==='interrupt'){
         if(!['Ready','InProgress','AwaitingEvidence'].includes(match.status))return 'state' as const;
         await client.query("UPDATE match_attempts SET status='Interrupted' WHERE id=$1",[match.current_attempt_id]);next='Interrupted';
-      }else{
+      }else if(action==='restart'){
         if(match.status!=='Interrupted')return 'state' as const;
         const attempt=await client.query<{attempt_no:number}>('SELECT attempt_no FROM match_attempts WHERE id=$1',[match.current_attempt_id]);const nextAttempt=randomUUID();
         await client.query('INSERT INTO match_attempts(id,match_id,attempt_no) VALUES($1,$2,$3)',[nextAttempt,match.id,(attempt.rows[0]?.attempt_no??0)+1]);
         await client.query('UPDATE matches SET current_attempt_id=$1 WHERE id=$2',[nextAttempt,match.id]);next='Scheduled';
+      }else{
+        if(!['RegistrationClosed','InProgress','Finalizing'].includes(match.tournament_status)||match.status==='Cancelled')return 'state' as const;
+        await client.query("UPDATE match_attempts SET status='Cancelled' WHERE id=$1 AND status='Active'",[match.current_attempt_id]);
+        await client.query("UPDATE match_result_versions SET status='Superseded' WHERE match_id=$1 AND status IN ('Draft','Verified')",[match.id]);
+        await client.query("UPDATE match_credentials SET status='Revoked' WHERE match_id=$1 AND status='Set'",[match.id]);next='Cancelled';
       }
       await client.query('UPDATE matches SET status=$1,version=version+1 WHERE id=$2',[next,match.id]);
+      if(action==='cancel'){
+        const prior=await client.query('SELECT 1 FROM standings_snapshots WHERE tournament_id=$1 LIMIT 1',[match.tournament_id]);
+        if(prior.rowCount){const found=await client.query<{config:unknown}>("SELECT config FROM tournament_rulesets WHERE tournament_id=$1 AND status IN ('Frozen','Confirmed') ORDER BY version_no DESC LIMIT 1",[match.tournament_id]);if(!found.rows[0])return 'rules' as const;await snapshot(client,match.tournament_id,null,scoringRulesSchema.parse(found.rows[0].config),match.id);}
+        const incomplete=await client.query("SELECT 1 FROM matches WHERE tournament_id=$1 AND status NOT IN ('Published','Cancelled') LIMIT 1",[match.tournament_id]);
+        if(!incomplete.rowCount&&match.tournament_status==='InProgress')await client.query("UPDATE tournaments SET status='Finalizing',version=version+1 WHERE id=$1",[match.tournament_id]);
+      }
       await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6,$7)',[randomUUID(),res.locals.admin.id,`match.${action}`,'match',match.id,JSON.stringify({status:match.status,version:match.version}),JSON.stringify({status:next,version:match.version+1,reason:body.data.reason??null})]);
       return {id:match.id,status:next,version:match.version+1};
     });

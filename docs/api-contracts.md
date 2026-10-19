@@ -5,7 +5,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 10. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 11. |
 | GET `/meta/config` | Public | Safe configuration; private evidence and payment-proof uploads available, registration available per event. |
 | POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |
@@ -43,7 +43,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | GET `/me/linked-matches` | Account session | List non-cancelled matches for linked members of approved, slotted teams. |
 | GET, POST `/admin/matches/:id/credentials` | Admin session; POST needs CSRF | Read metadata only or encrypt and rotate match room details with optimistic version and release time. |
 | GET `/matches/:id/credentials` | Linked approved/slotted roster account | Return active decrypted details only after release; every successful view is audited. |
-| GET `/admin/matches/:id`, POST `/admin/matches/:id/transition` | Admin session; POST needs CSRF | Read attempt history; guarded ready/start/finish/interrupt/restart with version checks and reason for interruption or restart. Starting freezes the confirmed rule set. |
+| GET `/admin/matches/:id`, POST `/admin/matches/:id/transition` | Admin session; POST needs CSRF | Read attempt history; guarded ready/start/finish/interrupt/restart/cancel with version checks and reason for interruption, restart or cancellation. Starting freezes the confirmed rule set. Cancellation revokes current room details and updates standings according to configured policy. |
 | GET, POST `/admin/matches/:id/evidence` | Admin session; POST needs CSRF | List metadata or upload a decoded PNG/JPEG screenshot up to 5 MB, hashed and immutable per attempt. |
 | GET `/admin/evidence/:id/image` | Admin session | View original private evidence. |
 | GET, POST `/admin/matches/:id/results` | Admin session; POST needs CSRF | List version metadata or save a complete manual draft linked to current-attempt evidence and frozen rules. |
@@ -58,4 +58,4 @@ Scoring accepts non-negative decimal strings with up to three decimal places, a 
 
 Errors carry a code, plain message and server-generated UUID `correlation_id`. Invalid rule fields include `details`. CORS accepts exactly `WEB_ORIGIN`; session cookies are HttpOnly and SameSite Strict, and HTTPS makes them Secure. Mutations require a CSRF token from the session. Request URLs, payloads, cookies, tokens and database strings are excluded from application logs. Unknown public API routes return JSON 404.
 
-Current limits: OCR, disqualification, match cancellation, disputes, reopening/archive and recovery operations remain pending. Manual result entry is available with original screenshots; the system does not claim image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.
+Current limits: OCR, disqualification, disputes, rescheduling, reopening/archive and recovery operations remain pending. Manual result entry is available with original screenshots; the system does not claim image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.
