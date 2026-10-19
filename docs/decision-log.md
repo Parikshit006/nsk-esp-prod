@@ -20,7 +20,7 @@ DEC-013/014: blank organizer-configured rules/tie-breaks; illustrative values on
 
 19 October 2026 — User decision for DEC-013/014 and Q-07/Q-10: each tournament's admin chooses all scoring and tie-break rules. Rules must be customizable per tournament, and an admin must be able to save and reuse a template. A template is copied into a tournament's own versioned ruleset; editing a template cannot silently change an existing tournament. No example Free Fire MAX table becomes a default or official rule.
 
-Free events: `NotRequired` is the payment state for a zero-fee tournament and satisfies the approval payment gate. Paid events require `Verified` or a reasoned `Waived` decision; payment proof upload/review is still pending. A waiver is exceptional, never a fake verification. Captains may submit a complete roster before payment review. Publishing is available for development and free-event trials while the rest of the match-day workflow is built.
+Free events: `NotRequired` is the payment state for a zero-fee tournament and satisfies the approval payment gate. Paid events require `Verified` or a reasoned `Waived` decision. Captains upload a private proof of payment made outside the platform; an organizer checks the exact amount, reference, screenshot and possible duplicates before verification. A waiver is exceptional, never a fake verification. Captains may submit a complete roster before payment review. Reversing verification on an approved team requires a fresh recorded review before room access returns. Publishing is available for development and trials while remaining match-day and launch operations are built.
 
 ## Existing conflict register disposition
 

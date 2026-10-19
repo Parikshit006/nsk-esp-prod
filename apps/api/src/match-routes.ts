@@ -23,7 +23,7 @@ export function matchRouter(pool:Pool){
       const action=body.data.action;let next:string;
       if(action==='ready'){
         if(match.status!=='Scheduled'||!['RegistrationClosed','InProgress'].includes(match.tournament_status))return 'state' as const;
-        const slots=await client.query<{n:number}>("SELECT count(*)::int n FROM slots s JOIN registrations r ON r.id=s.registration_id WHERE s.tournament_id=$1 AND s.status='Assigned' AND r.approval_status='Approved' AND r.slot_status='Assigned' AND r.status='Submitted'",[match.tournament_id]);
+        const slots=await client.query<{n:number}>("SELECT count(*)::int n FROM slots s JOIN registrations r ON r.id=s.registration_id WHERE s.tournament_id=$1 AND s.status='Assigned' AND r.approval_status='Approved' AND r.slot_status='Assigned' AND r.status='Submitted' AND r.payment_status IN ('NotRequired','Verified','Waived') AND NOT r.payment_recheck_required",[match.tournament_id]);
         if((slots.rows[0]?.n??0)<2)return 'slots' as const;
         const credential=await client.query("SELECT 1 FROM match_credentials WHERE match_id=$1 AND status='Set'",[match.id]);if(!credential.rowCount)return 'credential' as const;
         const rules=await client.query("SELECT 1 FROM tournament_rulesets WHERE tournament_id=$1 AND status IN ('Confirmed','Frozen')",[match.tournament_id]);if(!rules.rowCount)return 'rules' as const;

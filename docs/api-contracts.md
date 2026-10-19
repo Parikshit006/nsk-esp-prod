@@ -5,8 +5,8 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 8. |
-| GET `/meta/config` | Public | Safe development configuration; uploads disabled, registration available per event. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 9. |
+| GET `/meta/config` | Public | Safe configuration; private evidence and payment-proof uploads available, registration available per event. |
 | POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |
 | GET `/auth/me` | Account session | Current account and refreshed CSRF token. |
@@ -31,6 +31,11 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | POST `/admin/roster-entries/:id/confirm-ign` | Admin session + CSRF | Human confirmation of an unclear IGN, with note and audit. |
 | POST `/admin/registrations/:id/eligibility` | Admin session + CSRF | Verify or reject eligibility with recorded note. |
 | POST `/admin/registrations/:id/payment-waiver` | Admin session + CSRF | Exception for a paid entry with recorded reason. |
+| POST `/registrations/:id/payment-proofs`, GET `/registrations/:id/payment-proofs` | Captain owner; POST needs CSRF | Submit a PNG/JPEG proof with reference, paid amount and optional transaction ID, or list own private proof history. The tournament sets its maximum upload size (64 KB–10 MB). Submitted files are decoded and re-encoded without image metadata; proof bytes and history are immutable. |
+| GET `/admin/registrations/:id/payment-proofs` | Admin session | Private proof metadata and possible same-image/reference flags within the tournament. |
+| GET `/payment-proofs/:id/image` | Proof owner or admin | View private sanitized image. |
+| POST `/admin/payment-proofs/:id/decision` | Admin session + CSRF | Human verify, reject or reverse with note and optimistic version. Verification requires exact fee amount and explicit acknowledgement of possible duplicates. |
+| POST `/admin/registrations/:id/payment-recheck` | Admin session + CSRF | Record a fresh check after reversal of an approved team's payment; gated room access remains closed until then. |
 | POST `/admin/registrations/:id/decision` | Admin session + CSRF | Approve, reject or request correction. Approval checks roster, identity flags, payment, eligibility and capacity. |
 | GET `/admin/tournaments/:id/slots`, PUT `/admin/tournaments/:id/slots/:slot` | Admin session; PUT needs CSRF | List or assign capacity-bounded slots to approved teams. |
 | POST `/registrations/:id/roster/:entry/invitations` | Captain owner + CSRF | Create an email-bound, one-time, 48-hour player invitation; returns its private link once. |
@@ -49,4 +54,4 @@ Scoring accepts non-negative decimal strings with up to three decimal places, a 
 
 Errors carry a code, plain message and server-generated UUID `correlation_id`. Invalid rule fields include `details`. CORS accepts exactly `WEB_ORIGIN`; session cookies are HttpOnly and SameSite Strict, and HTTPS makes them Secure. Mutations require a CSRF token from the session. Request URLs, payloads, cookies, tokens and database strings are excluded from application logs. Unknown public API routes return JSON 404.
 
-Current limits: payment proof intake/review, OCR, disqualification decisions, finalization, tie decisions and recovery operations remain pending. Manual result entry is available with original screenshots; the system does not claim image extraction. Paid entries can only advance through a reasoned waiver at present; no normal paid-event path is claimed. The operator readiness token is separate from account sessions and never sent to the browser.
+Current limits: OCR, disqualification decisions, finalization, tie decisions and recovery operations remain pending. Manual result entry is available with original screenshots; the system does not claim image extraction. Paid entry verifies an externally made payment from submitted evidence and an organizer decision; it does not collect or settle money. The operator readiness token is separate from account sessions and never sent to the browser.

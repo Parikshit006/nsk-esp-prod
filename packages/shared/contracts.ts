@@ -1,7 +1,7 @@
 import { z } from 'zod';
 export const publicConfigSchema = z.object({
   timezone: z.literal('Asia/Kolkata'),
-  uploads_enabled: z.literal(false),
+  uploads_enabled: z.literal(true),
   registration_enabled: z.boolean(),
   stage: z.literal('development')
 }).strict();
