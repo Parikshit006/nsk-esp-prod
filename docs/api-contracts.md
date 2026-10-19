@@ -4,6 +4,8 @@
 
 - `POST /auth/request-password-reset`, `POST /auth/reset-password`: generic email request response with per-email/IP throttling; one-use 30-minute email link resets the password, consumes outstanding links and revokes all sessions. Production requires SMTP settings; no email is sent by the local tests.
 - `GET /admin/organizers`, `POST /admin/organizers`, `POST /admin/organizers/:id/invite`, `POST /admin/organizers/:id/status`: super-admin organizer list, email activation, resend and reasoned enable/disable. An organizer cannot sign in before activation; disabling revokes sessions and open reset links.
+- `GET/POST /registrations/:id/roster-change-requests`, `GET /admin/tournaments/:id/roster-change-requests`, `POST /admin/roster-change-requests/:id/decision`: captain requests a change after registration closes and before room release or match start; organizer approval applies it, invalidates affected player links and prior team/eligibility review, and triggers notices. Rejection preserves the live roster.
+- `POST /admin/registrations/:id/release-slot`: reasoned organizer release before match operations, with an immutable slot history and notification. Existing slot assignment accepts a released registration for reassignment.
 - `POST /auth/change-password`: signed-in user supplies current and new passwords with CSRF. Five attempts per 15 minutes; a successful change revokes all sessions and requires a fresh sign-in. `/auth/me` returns a stable CSRF token for the session so other open tabs do not invalidate forms.
 - `GET /admin/tournaments/:id/finalization-history`: immutable finalization and reopening history for organizers.
 - `POST /admin/tournaments/:id/reopen`: super admin only; Completed event, expected version and reason required. Withdraws the current public podium, preserves the former finalization, records an audit/reopening event and recomputes a review snapshot from frozen rules. The normal checklist and finalize path apply again.
@@ -22,7 +24,7 @@ All routes use `/api/v1`. This lists only routes that exist. The larger `impleme
 | Route | Authorization | Behavior |
 |---|---|---|
 | GET `/health/live` | Public | Process liveness only. |
-| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 20. |
+| GET `/health/ready` | Operator Bearer token | Verifies PostgreSQL and migration version 21. |
 | GET `/meta/config` | Public | Safe configuration; private evidence and payment-proof uploads available, registration available per event. |
 | POST `/auth/register` | Public | Creates a captain or member account (`account_type`, captain by default). |
 | POST `/auth/login` | Public | Email/password login, generic failure, five attempts per 15-minute email/IP window, revocable 8-hour session cookie and CSRF token. |

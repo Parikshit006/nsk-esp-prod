@@ -24,6 +24,7 @@ import { scheduleRouter } from './schedule-routes.js';
 import { refundRouter } from './refund-routes.js';
 import { reopenRouter } from './reopen-routes.js';
 import { organizerRouter } from './organizer-routes.js';
+import { rosterChangeRouter } from './roster-change-routes.js';
 
 export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{},sendRecovery?:RecoverySender) {
   const app=express();
@@ -46,6 +47,7 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
   app.get('/api/v1/meta/config',(_req,res)=>res.json({data:publicConfigSchema.parse({timezone:'Asia/Kolkata',uploads_enabled:true,registration_enabled:true,stage:'development'})}));
   app.use('/api/v1/auth',authRouter(config,pool,sendRecovery));
   app.use('/api/v1/admin',organizerRouter(config,pool,sendRecovery));
+  app.use('/api/v1',rosterChangeRouter(pool));
   app.use('/api/v1/admin',rulesRouter(pool));
   app.use('/api/v1/admin/tournaments',adminTournamentRouter(pool));
   app.use('/api/v1/admin',reviewRouter(pool));
@@ -69,7 +71,7 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==20) throw new Error('Schema not ready');
+      if(result.rows[0]?.schema_version!==21) throw new Error('Schema not ready');
       res.json({data:{status:'ready',database:'ready',stage:'development'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });
