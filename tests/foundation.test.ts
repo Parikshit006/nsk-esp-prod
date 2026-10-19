@@ -50,10 +50,10 @@ describe('Real database and API',()=>{
   it('TEST-094 migrations run from empty, are repeatable and reject applied edits',async()=>{
     await migrate(pool);
     const result=await pool.query('SELECT * FROM schema_migrations');
-    expect(result.rowCount).toBe(18);
+    expect(result.rowCount).toBe(20);
     const dir=await mkdtemp(join(tmpdir(),'esp-migration-'));
     try {await writeFile(join(dir,'0001_foundation.sql'),'SELECT 1;');await expect(migrate(pool,dir)).rejects.toThrow('Applied migration changed');} finally {await rm(dir,{recursive:true});}
-    const data=await pool.query('SELECT schema_version FROM platform_metadata');expect(data.rows).toEqual([{schema_version:18}]);
+    const data=await pool.query('SELECT schema_version FROM platform_metadata');expect(data.rows).toEqual([{schema_version:20}]);
   });
   it('TEST-090 readiness is authenticated and verifies migrated database',async()=>{
     const app=createApp(readConfig(env),pool);

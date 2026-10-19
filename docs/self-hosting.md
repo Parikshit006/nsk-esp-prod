@@ -1,13 +1,13 @@
 # Self-hosted launch plan (provisional)
 
-The organizer chose an own server. This is an operator plan, not a declaration that the service is ready for public use. The current app has a basic captain result-report workflow but still lacks retention deletion jobs, recovery drills, and production load checks. Do not accept real payments or personal data for a live tournament until those controls are complete.
+The organizer chose an own server. This is an operator plan, not a declaration that the service is ready for public use. The current app has a captain result-report workflow and a synthetic recovery drill, but still lacks retention deletion jobs, a real server recovery exercise and production load checks. Do not accept real payments or personal data for a live tournament until those controls are complete.
 
 ## Server layout
 
 - Use a supported Linux server with Docker Engine and Compose, persistent storage, and a separate encrypted backup destination. Pin the deployed commit and image digest.
 - Terminate HTTPS in a maintained reverse proxy. Proxy only the public origin to the app's loopback-bound port 3000. Keep PostgreSQL on a private network; the provided Compose file binds its port to loopback for local administration. Restrict SSH and host firewall access.
 - Use a unique high-entropy database password, readiness token, and 32-byte room-credential encryption key. Keep them outside Git in a root-readable environment file or secrets service. Back up the encryption key separately; losing it makes room details unreadable. Rotate compromised credentials and revoke sessions as part of an incident response.
-- Deploy with `docker compose up --build -d` only after setting `POSTGRES_PASSWORD`, HTTPS `WEB_ORIGIN`, `READINESS_TOKEN`, and `CREDENTIAL_ENCRYPTION_KEY`. The app image runs forward-only, checksum-protected migrations before starting. Review each migration and take a recoverable backup before an upgrade.
+- Deploy with `docker compose up --build -d` only after setting `POSTGRES_PASSWORD`, HTTPS `WEB_ORIGIN`, `READINESS_TOKEN`, `CREDENTIAL_ENCRYPTION_KEY`, and SMTP host, port, user, password and sender address. Configure TLS for the chosen SMTP port and test password recovery on staging. The app image runs forward-only, checksum-protected migrations before starting. Review each migration and take a recoverable backup before an upgrade.
 
 ## Backups and recovery
 

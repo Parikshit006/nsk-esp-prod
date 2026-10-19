@@ -88,7 +88,7 @@ it('guards readiness, freezes rules on start and preserves attempts on interrupt
   const final=await operator.post(`/api/v1/admin/tournaments/${event}/finalize`).set('X-CSRF-Token',csrf).send({expected_version:ready.body.data.version,snapshot_id:body.snapshot_id,reason:'Final standings checked and approved.'});expect(final.status).toBe(200);expect(final.body.data.podium.map((item:{team_name:string})=>item.team_name)).toEqual(['Team 2','Team 1']);
   expect((await request(app).get(`/api/v1/tournaments/${event}/podium`)).body.data.podium[0].team_name).toBe('Team 2');
   expect((await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:15,evidence_id:evidence,reason:'Another correction after completion',rows:rows()})).status).toBe(409);
-  const organizerId=await createAdmin(pool,'limited-organizer@example.test','limited-organizer-password');await pool.query("UPDATE accounts SET role='organizer' WHERE id=$1",[organizerId]);
+  const organizerId=await createAdmin(pool,'limited-organizer@example.test','limited-organizer-password');await pool.query("UPDATE accounts SET role='organizer',organizer_activated_at=now() WHERE id=$1",[organizerId]);
   const organizer=request.agent(app),organizerCsrf=(await organizer.post('/api/v1/auth/login').send({email:'limited-organizer@example.test',password:'limited-organizer-password'})).body.data.csrf_token;
   const reopening={expected_version:final.body.data.version,reason:'Platform review found the recorded tie order needs correction.'};
   expect((await organizer.post(`/api/v1/admin/tournaments/${event}/reopen`).set('X-CSRF-Token',organizerCsrf).send(reopening)).status).toBe(403);

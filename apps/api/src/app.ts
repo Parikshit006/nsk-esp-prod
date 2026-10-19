@@ -6,6 +6,7 @@ import type { Pool } from 'pg';
 import type { Config } from './config.js';
 import { publicConfigSchema } from '../../../packages/shared/contracts.js';
 import { authRouter } from './auth.js';
+import type { RecoverySender } from './mail.js';
 import { rulesRouter } from './rules-routes.js';
 import { adminTournamentRouter, publicTournamentRouter } from './tournament-routes.js';
 import { participantRouter } from './participant-routes.js';
@@ -22,8 +23,9 @@ import { notificationRouter } from './notification-routes.js';
 import { scheduleRouter } from './schedule-routes.js';
 import { refundRouter } from './refund-routes.js';
 import { reopenRouter } from './reopen-routes.js';
+import { organizerRouter } from './organizer-routes.js';
 
-export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{}) {
+export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{},sendRecovery?:RecoverySender) {
   const app=express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -42,7 +44,8 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
   app.use(express.json({limit:'32kb'}));
   app.get('/api/v1/health/live',(_req,res)=>res.json({data:{status:'alive'}}));
   app.get('/api/v1/meta/config',(_req,res)=>res.json({data:publicConfigSchema.parse({timezone:'Asia/Kolkata',uploads_enabled:true,registration_enabled:true,stage:'development'})}));
-  app.use('/api/v1/auth',authRouter(config,pool));
+  app.use('/api/v1/auth',authRouter(config,pool,sendRecovery));
+  app.use('/api/v1/admin',organizerRouter(config,pool,sendRecovery));
   app.use('/api/v1/admin',rulesRouter(pool));
   app.use('/api/v1/admin/tournaments',adminTournamentRouter(pool));
   app.use('/api/v1/admin',reviewRouter(pool));
@@ -66,7 +69,7 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==18) throw new Error('Schema not ready');
+      if(result.rows[0]?.schema_version!==20) throw new Error('Schema not ready');
       res.json({data:{status:'ready',database:'ready',stage:'development'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });

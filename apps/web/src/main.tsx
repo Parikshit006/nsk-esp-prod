@@ -6,6 +6,7 @@ import { AdminApp } from './admin.js';
 import { PublicTournamentList, PublicTournamentPage } from './public-tournaments.js';
 import { ParticipantApp } from './participant.js';
 import { JoinApp } from './join.js';
+import { RecoveryApp } from './recovery.js';
 import './styles.css';
 
 const systemPages:Record<string,{title:string;body:string}>={
@@ -41,4 +42,4 @@ function App(){
   </>;
 }
 const eventId=window.location.pathname.match(/^\/tournaments\/([0-9a-f-]{36})$/)?.[1];
-createRoot(document.getElementById('root')!).render(window.location.pathname==='/admin'?<AdminApp/>:window.location.pathname==='/participate'?<ParticipantApp/>:window.location.pathname==='/join'?<JoinApp/>:eventId?<PublicTournamentPage id={eventId}/>:<React.StrictMode><App/></React.StrictMode>);
+createRoot(document.getElementById('root')!).render(window.location.pathname==='/reset-password'?<RecoveryApp/>:window.location.pathname==='/admin'?<AdminApp/>:window.location.pathname==='/participate'?<ParticipantApp/>:window.location.pathname==='/join'?<JoinApp/>:eventId?<PublicTournamentPage id={eventId}/>:<React.StrictMode><App/></React.StrictMode>);
