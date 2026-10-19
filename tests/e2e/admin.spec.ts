@@ -90,6 +90,11 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
     await page.getByRole('button',{name:'Add player'}).click();
     await expect(page.getByText('Player added to the roster.')).toBeVisible();
   }
+  await page.getByRole('button',{name:'Edit Player 3',exact:true}).click();
+  await page.getByLabel('Corrected in-game name').fill(`CorrectedP3${suffix}`);
+  await page.getByLabel('Roster correction reason').fill('Fixed the spelling against the player game profile.');
+  await page.getByRole('button',{name:'Save roster correction'}).click();
+  await expect(page.getByText(`IGN: CorrectedP3${suffix}`,{exact:false})).toBeVisible();
   await page.getByLabel('Eligibility details').fill('Our team members meet the college eligibility requirements.');
   await page.getByRole('button',{name:'Submit registration'}).click();
   await expect(page.getByText('Registration submitted for organizer review.')).toBeVisible();
@@ -119,12 +124,18 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByLabel('Release at, with time-zone offset').fill(at(-1));
   await page.getByRole('button',{name:'Save room details'}).click();
   await expect(page.getByText('Room details saved as version 1. Earlier details are no longer active.')).toBeVisible();
+  await page.getByLabel('New round start with timezone').fill(at(2.6));
+  await page.getByLabel('New round end with timezone').fill(at(3.1));
+  await page.getByLabel('Rescheduling reason').fill('The organizer moved the round slightly later.');
+  await page.getByRole('button',{name:'Reschedule round'}).click();
+  await expect(page.getByText('Schedule updated. In-app notices were created for registered teams. Readiness must be checked again.')).toBeVisible();
   await page.goto('/participate');
   await page.getByRole('button',{name:'Sign out'}).click();
   await page.getByLabel('Email').fill(`captain-${suffix}@example.test`);
   await page.getByLabel('Password').fill('browser-captain-password-1234');
   await page.getByRole('button',{name:'Sign in'}).click();
   await page.getByRole('button',{name:'View roster'}).click();
+  await expect(page.getByText('Unread · Match 1 rescheduled')).toBeVisible();
   const player=page.getByRole('listitem').filter({hasText:'Player 2'});
   await player.getByLabel('Player email').fill(`member-${suffix}@example.test`);
   await player.getByRole('button',{name:'Create invite link'}).click();

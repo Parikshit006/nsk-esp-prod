@@ -1,3 +1,4 @@
+import { notifyTournament } from './notification-routes.js';
 import { randomUUID } from 'node:crypto';
 import { Router, type Response } from 'express';
 import type { Pool, PoolClient } from 'pg';
@@ -12,7 +13,7 @@ const draftSchema=z.object({expected_match_version:z.number().int().positive(),e
 const decisionSchema=z.object({expected_match_version:z.number().int().positive()}).strict();
 function fail(res:Response,status:number,code:string,message:string){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId}});}
 async function tx<T>(pool:Pool,run:(client:PoolClient)=>Promise<T>){const client=await pool.connect();try{await client.query('BEGIN');const value=await run(client);await client.query('COMMIT');return value;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
-async function audit(client:PoolClient,actor:string,action:string,id:string,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor,action,'match_result_version',id,JSON.stringify(after)]);}
+async function audit(client:PoolClient,actor:string,action:string,id:string,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor,action,'match_result_version',id,JSON.stringify(after)]);if(action==='result.published'){const result=await client.query('SELECT m.tournament_id FROM match_result_versions v JOIN matches m ON m.id=v.match_id WHERE v.id=$1',[id]);if(result.rows[0])await notifyTournament(client,result.rows[0].tournament_id,'Results published or corrected','A new result version is public. Check the latest standings and the event reporting window.');}}
 function toMilli(value:string){const neg=value.startsWith('-'),[whole='0',fraction='']=(neg?value.slice(1):value).split('.');const n=BigInt(whole)*1000n+BigInt(fraction.padEnd(3,'0'));return neg?-n:n;}
 function fromMilli(n:bigint){const neg=n<0n?'-':'',abs=n<0n?-n:n;return `${neg}${abs/1000n}.${(abs%1000n).toString().padStart(3,'0')}`.replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1');}
 

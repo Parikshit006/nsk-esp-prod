@@ -1,3 +1,4 @@
+import { notifyRegistration } from './notification-routes.js';
 import { createHash, randomUUID } from 'node:crypto';
 import express, { Router, type Response } from 'express';
 import type { Pool, PoolClient } from 'pg';
@@ -8,7 +9,7 @@ import { requireAccount, requireAdmin, requireCsrf } from './auth.js';
 const uuid=z.uuid();const decisionSchema=z.object({expected_version:z.number().int().positive(),decision:z.enum(['verify','reject','reverse']),note:z.string().trim().min(10).max(1000),duplicate_reviewed:z.boolean().default(false)}).strict();const recheckSchema=z.object({expected_version:z.number().int().positive(),reason:z.string().trim().min(10).max(1000)}).strict();
 function fail(res:Response,status:number,code:string,message:string){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId}});}
 async function tx<T>(pool:Pool,run:(client:PoolClient)=>Promise<T>){const client=await pool.connect();try{await client.query('BEGIN');const value=await run(client);await client.query('COMMIT');return value;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
-async function audit(client:PoolClient,actor:string,action:string,id:string,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor,action,'payment_proof',id,JSON.stringify(after)]);}
+async function audit(client:PoolClient,actor:string,action:string,id:string,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor,action,'payment_proof',id,JSON.stringify(after)]);if(['payment.verify','payment.reject','payment.reverse'].includes(action)){const proof=await client.query('SELECT registration_id FROM payment_proofs WHERE id=$1',[id]);if(proof.rows[0])await notifyRegistration(client,proof.rows[0].registration_id,'Payment review updated','The organizer updated your payment-proof decision. Open your registration for the current status.');}}
 async function duplicateFlags(client:Pool|PoolClient,tournamentId:string,registrationId:string,sha:string,reference:string){const found=await client.query<{same_image:boolean;same_reference:boolean}>("SELECT coalesce(bool_or(sha256=$3),false) same_image,coalesce(bool_or(lower(reference)=lower($4)),false) same_reference FROM payment_proofs WHERE tournament_id=$1 AND registration_id<>$2 AND status<>'Superseded'",[tournamentId,registrationId,sha,reference]);return found.rows[0]??{same_image:false,same_reference:false};}
 
 export function paymentRouter(pool:Pool){

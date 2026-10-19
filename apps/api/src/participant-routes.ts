@@ -7,6 +7,7 @@ import { requireAccount, requireCsrf } from './auth.js';
 
 const uuid=z.uuid();
 const withdrawSchema=z.object({expected_version:z.number().int().positive(),reason:z.string().trim().min(10).max(1000)}).strict();
+const editRosterSchema=rosterInputSchema.omit({role:true,self:true}).extend({entry_id:z.uuid(),reason:z.string().trim().min(10).max(1000)});
 function fail(res:Response,status:number,code:string,message:string,details?:unknown){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId,...(details?{details}:{})}});}
 async function tx<T>(pool:Pool,run:(client:PoolClient)=>Promise<T>){const client=await pool.connect();try{await client.query('BEGIN');const value=await run(client);await client.query('COMMIT');return value;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
 async function audit(client:PoolClient,actor:string,action:string,type:string,id:string,before:unknown,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6,$7)',[randomUUID(),actor,action,type,id,before===null?null:JSON.stringify(before),after===null?null:JSON.stringify(after)]);}
@@ -16,7 +17,7 @@ async function ownedRegistration(client:PoolClient,id:string,accountId:string,lo
 export function participantRouter(pool:Pool){
   const router=Router();
   router.use((req,res,next)=>{
-    if(!(/^\/(teams|me\/(teams|registrations)|registrations\/[^/]+(\/roster|\/submit|\/withdraw)?|tournaments\/[^/]+\/registrations)$/.test(req.path)))return next();
+    if(!(/^\/(teams|me\/(teams|registrations)|registrations\/[^/]+(\/roster|\/roster-edit|\/submit|\/withdraw)?|tournaments\/[^/]+\/registrations)$/.test(req.path)))return next();
     return requireAccount(pool)(req,res,next);
   });
   router.use((req,res,next)=>req.method==='GET'||!res.locals.admin?next():requireCsrf(pool)(req,res,next));
@@ -53,6 +54,9 @@ export function participantRouter(pool:Pool){
     const id=uuid.safeParse(req.params.id),parsed=rosterInputSchema.safeParse(req.body);if(!id.success||!parsed.success)return fail(res,400,'VALIDATION_FAILED','Check the roster entry and version.');
     try{
       const data=await tx(pool,async client=>{
+        const peek=await ownedRegistration(client,id.data,res.locals.admin.id,false);if(!peek)return null;
+        const event=await client.query<{status:string;registration_close_at:Date}>('SELECT status,registration_close_at FROM tournaments WHERE id=$1 FOR UPDATE',[peek.tournament_id]);
+        if(event.rows[0]?.status!=='RegistrationOpen'||Date.now()>=event.rows[0].registration_close_at.getTime())return 'locked' as const;
         const registration=await ownedRegistration(client,id.data,res.locals.admin.id,true);if(!registration)return null;
         if(registration.version!==parsed.data.expected_version)return 'stale' as const;
         if(!['Draft','NeedsCorrection'].includes(registration.status))return 'locked' as const;
@@ -68,6 +72,25 @@ export function participantRouter(pool:Pool){
       });
       if(data===null)return fail(res,404,'NOT_FOUND','Registration not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Registration changed. Reload and try again.');if(data==='locked')return fail(res,409,'NOT_ELIGIBLE','Roster is locked in this registration state.');if(data==='full')return fail(res,409,'GATE_BLOCKED','The roster is full.');if(data==='duplicate')return fail(res,409,'DUPLICATE','This in-game name is already on your roster.');if(data==='captain')return fail(res,409,'GATE_BLOCKED','Add one captain entry linked to your account.');return res.status(201).json({data});
     }catch(error){if((error as {code?:string}).code==='23505')return fail(res,409,'DUPLICATE','This account or captain entry is already on an active roster.');throw error;}
+  });
+  router.post('/registrations/:id/roster-edit',async(req,res)=>{
+    const id=uuid.safeParse(req.params.id),body=editRosterSchema.safeParse(req.body);if(!id.success||!body.success)return fail(res,400,'VALIDATION_FAILED','Provide the player details, current version and a correction reason.');
+    const data=await tx(pool,async client=>{
+      const peek=await ownedRegistration(client,id.data,res.locals.admin.id,false);if(!peek)return null;
+      const event=await client.query<{status:string;registration_close_at:Date}>('SELECT status,registration_close_at FROM tournaments WHERE id=$1 FOR UPDATE',[peek.tournament_id]);
+      const reg=await ownedRegistration(client,id.data,res.locals.admin.id,true);if(!reg)return null;
+      if(reg.version!==body.data.expected_version)return 'stale' as const;
+      if(!['Draft','NeedsCorrection'].includes(reg.status)||reg.approval_status!=='Unreviewed'||event.rows[0]?.status!=='RegistrationOpen'||Date.now()>=event.rows[0].registration_close_at.getTime())return 'locked' as const;
+      const found=await client.query<{id:string;display_name:string;ign_raw:string;game_uid:string|null;role:string}>('SELECT id,display_name,ign_raw,game_uid,role FROM roster_entries WHERE registration_id=$1 AND status=$2 FOR UPDATE',[reg.id,'Active']);
+      const entry=found.rows.find(row=>row.id===body.data.entry_id);if(!entry)return null;
+      if(found.rows.some(row=>row.id!==entry.id&&key(row.ign_raw)===key(body.data.ign_raw)))return 'duplicate' as const;
+      await client.query('UPDATE roster_invitations SET revoked_at=now() WHERE roster_entry_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL',[entry.id]);
+      await client.query("UPDATE roster_entries SET display_name=$1,ign_raw=$2,ign_exact=$3,game_uid=$4,account_id=CASE WHEN role='Captain' THEN account_id ELSE NULL END,ign_admin_confirmed_at=NULL,ign_admin_confirmed_by=NULL,ign_admin_note=NULL,version=version+1 WHERE id=$5",[body.data.display_name,body.data.ign_raw,body.data.ign_exact,body.data.game_uid,entry.id]);
+      await client.query("UPDATE registrations SET eligibility_status='Pending',eligibility_reviewed_by=NULL,eligibility_reviewed_at=NULL,eligibility_review_note=NULL,version=version+1 WHERE id=$1",[reg.id]);
+      await audit(client,res.locals.admin.id,'roster.corrected','roster_entry',entry.id,entry,{display_name:body.data.display_name,ign_raw:body.data.ign_raw,game_uid:body.data.game_uid,reason:body.data.reason,player_link_revoked:entry.role!=='Captain'});
+      return {id:entry.id,version:reg.version+1};
+    });
+    if(data===null)return fail(res,404,'NOT_FOUND','Roster entry not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Registration changed. Reload and try again.');if(data==='locked')return fail(res,409,'NOT_ELIGIBLE','Corrections require an unapproved draft or returned registration before registration closes.');if(data==='duplicate')return fail(res,409,'DUPLICATE','This in-game name is already on your roster.');return res.json({data});
   });
   router.post('/registrations/:id/submit',async(req,res)=>{
     const id=uuid.safeParse(req.params.id),parsed=submitRegistrationSchema.safeParse(req.body);if(!id.success||!parsed.success)return fail(res,400,'VALIDATION_FAILED','Provide eligibility details and the current version.');

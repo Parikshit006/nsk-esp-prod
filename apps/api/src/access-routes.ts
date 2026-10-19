@@ -1,3 +1,4 @@
+import { notifyTournament } from './notification-routes.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Router, type Response } from 'express';
 import type { Pool, PoolClient } from 'pg';
@@ -12,7 +13,7 @@ const credentialSchema=z.object({expected_version:version,room_id:z.string().tri
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 function fail(res:Response,status:number,code:string,message:string,data?:unknown){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId},...(data?{data}:{})});}
 async function tx<T>(pool:Pool,run:(client:PoolClient)=>Promise<T>){const client=await pool.connect();try{await client.query('BEGIN');const value=await run(client);await client.query('COMMIT');return value;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
-async function audit(client:PoolClient,actor:string,action:string,type:string,id:string,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor,action,type,id,after===null?null:JSON.stringify(after)]);}
+async function audit(client:PoolClient,actor:string,action:string,type:string,id:string,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor,action,type,id,after===null?null:JSON.stringify(after)]);if(action==='credential.set'){const room=await client.query('SELECT m.tournament_id,c.release_at FROM match_credentials c JOIN matches m ON m.id=c.match_id WHERE c.id=$1',[id]);if(room.rows[0])await notifyTournament(client,room.rows[0].tournament_id,'Room details updated','Room details are set or changed. Check your protected match access for the release time.');}}
 function secretKey(config:Config){return config.CREDENTIAL_ENCRYPTION_KEY?Buffer.from(config.CREDENTIAL_ENCRYPTION_KEY,'hex'):null;}
 function encrypt(key:Buffer,value:{room_id:string;password:string}){const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);const ciphertext=Buffer.concat([cipher.update(JSON.stringify(value),'utf8'),cipher.final()]);return {iv,ciphertext,tag:cipher.getAuthTag()};}
 function decrypt(key:Buffer,value:{iv:Buffer;ciphertext:Buffer;auth_tag:Buffer}){const decipher=createDecipheriv('aes-256-gcm',key,value.iv);decipher.setAuthTag(value.auth_tag);return JSON.parse(Buffer.concat([decipher.update(value.ciphertext),decipher.final()]).toString('utf8')) as {room_id:string;password:string};}

@@ -53,3 +53,22 @@ describe('Captain registration and roster gates',()=>{
     const replacement=await post(`/api/v1/tournaments/${eventId}/registrations`,{team_id:team.body.data.id});expect(replacement.status).toBe(201);
   });
 });
+  it('audits captain corrections and rejects stale, foreign and closed-window edits',async()=>{
+    const agent=request.agent(app);const login=await agent.post('/api/v1/auth/login').send({email:'captain@example.test',password:'captain-password-1234'});const csrf=login.body.data.csrf_token;
+    const post=(path:string,body:object)=>agent.post(path).set('X-CSRF-Token',csrf).send(body);
+    const team=await post('/api/v1/teams',{name:'Correction Squad'});
+    const registration=await post(`/api/v1/tournaments/${eventId}/registrations`,{team_id:team.body.data.id});const rid=registration.body.data.id;
+    const captain=await post(`/api/v1/registrations/${rid}/roster`,{expected_version:1,display_name:'Correction Captain',ign_raw:'CorrectionCaptain',ign_exact:true,game_uid:null,role:'Captain',self:true});expect(captain.status).toBe(201);
+    const path=`/api/v1/registrations/${rid}/roster-edit`;
+    const correction={expected_version:2,entry_id:captain.body.data.id,display_name:'Corrected Captain',ign_raw:'Corrected IGN',ign_exact:false,game_uid:'54321',reason:'Corrected a typing mistake in the original entry.'};
+    expect((await request(app).post(path).send(correction)).status).toBe(401);
+    expect((await post(path,{...correction,entry_id:crypto.randomUUID()})).status).toBe(404);
+    expect((await post(path,correction)).status).toBe(200);
+    expect((await post(path,correction)).status).toBe(409);
+    const detail=(await agent.get(`/api/v1/registrations/${rid}`)).body.data;
+    expect(detail.roster[0]).toMatchObject({ign_raw:'Corrected IGN',ign_exact:false,game_uid:'54321'});expect(detail.roster[0].account_id).toBeTruthy();
+    expect((await pool.query("SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='roster.corrected'",[captain.body.data.id])).rowCount).toBe(1);
+    await pool.query("UPDATE tournaments SET registration_close_at=now()-interval '1 second' WHERE id=$1",[eventId]);
+    expect((await post(path,{...correction,expected_version:3})).status).toBe(409);
+    expect((await post(`/api/v1/registrations/${rid}/roster`,{expected_version:3,display_name:'Too Late',ign_raw:'TooLate',ign_exact:true,game_uid:null,role:'Player',self:false})).status).toBe(409);
+  });

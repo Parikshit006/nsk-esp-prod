@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import { matchInputSchema, tournamentConfigInputSchema, tournamentTransitionSchema } from '../../../packages/shared/tournament.js';
 import { requireAdmin, requireCsrf } from './auth.js';
+import { notifyTournament } from './notification-routes.js';
 
 const uuid=z.uuid();
 function fail(res:Response,status:number,code:string,message:string,details?:unknown){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId,...(details?{details}:{})}});}
@@ -65,9 +66,23 @@ export function adminTournamentRouter(pool:Pool){
       if(action==='publish'&&tournament.status==='Draft'){const blockers=await readiness(client,tournament);if(blockers.length)return {blocked:blockers};next='Published';}
       else if(action==='open_registration'&&tournament.status==='Published'){const now=Date.now();if(!tournament.registration_open_at||!tournament.registration_close_at||now<tournament.registration_open_at.getTime()||now>=tournament.registration_close_at.getTime())return {blocked:[{field:'registration_window',issue:'Registration can open only within its configured window.'}]};next='RegistrationOpen';}
       else if(action==='close_registration'&&tournament.status==='RegistrationOpen')next='RegistrationClosed';
-      else if(action==='cancel'&&['Draft','Published','RegistrationOpen','RegistrationClosed','InProgress'].includes(tournament.status))next='Cancelled';
+      else if(action==='cancel'&&['Draft','Published','RegistrationOpen','RegistrationClosed','InProgress','Finalizing'].includes(tournament.status))next='Cancelled';
       else if(action==='archive'&&tournament.status==='Completed')next='Archived';
       else return 'invalid' as const;
+      if(action==='cancel'){
+        await notifyTournament(client,id.data,'Tournament cancelled','The organizer cancelled this tournament. Room access and pending participation are closed. If you submitted a payment proof, check your registration and contact the organizer about the off-platform refund review.');
+        await client.query("UPDATE tournaments SET cancellation_reason=$1 WHERE id=$2",[parsed.data.reason,id.data]);
+        await client.query("INSERT INTO refund_reviews(tournament_id,registration_id) SELECT r.tournament_id,r.id FROM registrations r WHERE r.tournament_id=$1 AND r.status NOT IN ('Withdrawn','Cancelled') AND EXISTS (SELECT 1 FROM payment_proofs p WHERE p.registration_id=r.id) ON CONFLICT (registration_id) DO NOTHING",[id.data]);
+        await client.query("UPDATE slots SET status='Released',released_by=$2,released_at=now(),release_reason=$3 WHERE tournament_id=$1 AND status='Assigned'",[id.data,res.locals.admin.id,parsed.data.reason]);
+        await client.query("UPDATE registrations SET status='Cancelled',slot_status=CASE WHEN slot_status='Assigned' THEN 'Released' ELSE slot_status END,version=version+1 WHERE tournament_id=$1 AND status NOT IN ('Withdrawn','Cancelled')",[id.data]);
+        await client.query("UPDATE roster_invitations SET revoked_at=now() WHERE registration_id IN (SELECT id FROM registrations WHERE tournament_id=$1) AND accepted_at IS NULL AND revoked_at IS NULL",[id.data]);
+        await client.query("UPDATE match_credentials SET status='Revoked' WHERE match_id IN (SELECT id FROM matches WHERE tournament_id=$1) AND status='Set'",[id.data]);
+        await client.query("UPDATE match_attempts SET status='Cancelled' WHERE match_id IN (SELECT id FROM matches WHERE tournament_id=$1) AND status='Active'",[id.data]);
+        await client.query("UPDATE match_result_versions SET status='Superseded' WHERE match_id IN (SELECT id FROM matches WHERE tournament_id=$1) AND status IN ('Draft','Verified')",[id.data]);
+        await client.query("UPDATE matches SET status='Cancelled',version=version+1 WHERE tournament_id=$1 AND status<>'Cancelled'",[id.data]);
+        const reports=await client.query<{id:string}>("SELECT id FROM result_disputes WHERE tournament_id=$1 AND status='Open'",[id.data]);
+        for(const report of reports.rows){await client.query("UPDATE result_disputes SET status='Rejected',reviewed_by=$1,reviewed_at=now(),response='Event cancelled before this report could be resolved.',version=version+1 WHERE id=$2",[res.locals.admin.id,report.id]);await client.query("INSERT INTO result_dispute_events(id,dispute_id,actor_id,action,detail) VALUES($1,$2,$3,'Rejected',$4)",[randomUUID(),report.id,res.locals.admin.id,JSON.stringify({reason:'Event cancelled'})]);}
+      }
       await client.query('UPDATE tournaments SET status=$1,version=version+1 WHERE id=$2',[next,id.data]);
       await audit(client,res.locals.admin.id,`tournament.${action}`,id.data,{status:tournament.status},{status:next,reason:parsed.data.reason??null});
       return {id:id.data,status:next,version:tournament.version+1};
@@ -78,6 +93,6 @@ export function adminTournamentRouter(pool:Pool){
 export function publicTournamentRouter(pool:Pool){
   const router=Router();
   router.get('/',async(_req,res)=>{const result=await pool.query("SELECT id,name,game,format,capacity,team_size,fee_minor,currency,timezone,registration_open_at,registration_close_at,starts_at,ends_at,status FROM tournaments WHERE status IN ('Published','RegistrationOpen','RegistrationClosed','InProgress','Finalizing','Completed','Archived') ORDER BY starts_at,id");res.json({data:result.rows});});
-  router.get('/:id',async(req,res)=>{const id=uuid.safeParse(req.params.id);if(!id.success)return fail(res,400,'VALIDATION_FAILED','Invalid tournament ID.');const tournament=await pool.query("SELECT id,name,game,format,capacity,team_size,fee_minor,currency,timezone,registration_open_at,registration_close_at,starts_at,ends_at,status,rules_text,eligibility_text,payment_instructions,payment_proof_max_bytes,dispute_window_hours FROM tournaments WHERE id=$1 AND status IN ('Published','RegistrationOpen','RegistrationClosed','InProgress','Finalizing','Completed','Archived')",[id.data]);if(!tournament.rows[0])return fail(res,404,'NOT_FOUND','Tournament not found.');const matches=await pool.query('SELECT id,match_no,map,scheduled_at,ends_at,status FROM matches WHERE tournament_id=$1 ORDER BY match_no',[id.data]);const rules=await pool.query('SELECT version_no,config FROM tournament_rulesets WHERE tournament_id=$1 AND status IN (\'Confirmed\',\'Frozen\') ORDER BY version_no DESC LIMIT 1',[id.data]);return res.json({data:{...tournament.rows[0],matches:matches.rows,rules:rules.rows[0]??null}});});
+  router.get('/:id',async(req,res)=>{const id=uuid.safeParse(req.params.id);if(!id.success)return fail(res,400,'VALIDATION_FAILED','Invalid tournament ID.');const tournament=await pool.query("SELECT id,name,game,format,capacity,team_size,fee_minor,currency,timezone,registration_open_at,registration_close_at,starts_at,ends_at,status,rules_text,eligibility_text,payment_instructions,payment_proof_max_bytes,dispute_window_hours,cancellation_reason FROM tournaments WHERE id=$1 AND (status IN ('Published','RegistrationOpen','RegistrationClosed','InProgress','Finalizing','Completed','Archived') OR (status='Cancelled' AND EXISTS (SELECT 1 FROM audit_events WHERE entity_id=tournaments.id AND action='tournament.publish')))",[id.data]);if(!tournament.rows[0])return fail(res,404,'NOT_FOUND','Tournament not found.');const matches=await pool.query('SELECT id,match_no,map,scheduled_at,ends_at,status FROM matches WHERE tournament_id=$1 ORDER BY match_no',[id.data]);const rules=await pool.query('SELECT version_no,config FROM tournament_rulesets WHERE tournament_id=$1 AND status IN (\'Confirmed\',\'Frozen\') ORDER BY version_no DESC LIMIT 1',[id.data]);return res.json({data:{...tournament.rows[0],matches:matches.rows,rules:rules.rows[0]??null}});});
   return router;
 }

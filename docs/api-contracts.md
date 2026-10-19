@@ -1,5 +1,14 @@
 # Implemented API contracts
 
+## October 19 additions
+
+- `POST /admin/evidence/:id/ocr`, `GET /admin/evidence/:id/ocr`: admin-only local reading queue and status. Duplicate requests reuse the same job; the worker has leases and three attempts. Output never modifies scores or confirms identities.
+- `POST /registrations/:id/roster-edit`: owning captain supplies entry ID, current registration version, corrected fields and reason. Only unapproved Draft/NeedsCorrection registrations before the deadline. Clears identity/eligibility review and player account/invite links.
+- `POST /admin/matches/:id/reschedule`: version, timezone-qualified start/end, reason. Future Scheduled/Ready rounds only, within event bounds and without overlap. Returns to Scheduled, versions any credential release and atomically creates in-app notices.
+- `GET /me/notifications`, `POST /me/notifications/:id/read`: only the authenticated recipient; latest 100 notices. Read acknowledgement is idempotent. No room secrets or payment-proof contents in notices.
+- Tournament `cancel` now cascades through registrations, slots, invitations, credentials, attempts and pending results; original evidence is retained. Open reports receive an explicit cancellation disposition. Previously published cancelled event details remain accessible by their existing URL; draft events remain private.
+- `GET /admin/tournaments/:id/refund-reviews`, `POST /admin/refund-reviews/:id/decision`, `GET /me/refund-reviews`: cancellation proof review and audited off-platform outcome. An admin cannot decide their own team's refund; captains see only their own records. This records an organizer decision and does not move money. Resolved reviews cannot be overwritten.
+
 All routes use `/api/v1`. This lists only routes that exist. The larger `implementation_reference.md` remains a specification.
 
 | Route | Authorization | Behavior |

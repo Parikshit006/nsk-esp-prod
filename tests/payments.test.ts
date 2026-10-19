@@ -37,4 +37,18 @@ it('reviews private paid proofs, flags duplicates and gates approval and room ac
   expect((await operator.post(`/api/v1/admin/payment-proofs/${resubmitted.body.data.id}/decision`).set('X-CSRF-Token',adminCsrf).send({expected_version:7,decision:'verify',note:'Replacement reference and amount confirmed.'})).status).toBe(200);
   expect((await first.get(`/api/v1/matches/${match}/credentials`)).status).toBe(403);
   const recheck=await operator.post(`/api/v1/admin/registrations/${registrations[0]}/payment-recheck`).set('X-CSRF-Token',adminCsrf).send({expected_version:8,reason:'Fresh payment proof independently reviewed.'});expect(recheck.status).toBe(200);expect((await first.get(`/api/v1/matches/${match}/credentials`)).status).toBe(200);
+  const detail=await operator.get(`/api/v1/admin/tournaments/${event}`);
+  const cancelled=await operator.post(`/api/v1/admin/tournaments/${event}/transition`).set('X-CSRF-Token',adminCsrf).send({expected_version:detail.body.data.version,action:'cancel',reason:'The venue is unavailable so the tournament is cancelled.'});expect(cancelled.status).toBe(200);
+  const revoked=await first.get(`/api/v1/matches/${match}/credentials`);expect(revoked.status).toBe(409);expect(JSON.stringify(revoked.body)).not.toContain('PAID-PASSWORD');
+  expect((await first.get(`/api/v1/registrations/${registrations[0]}`)).body.data).toMatchObject({status:'Cancelled',slot_status:'Released'});
+  expect((await operator.get(`/api/v1/admin/tournaments/${event}/slots`)).body.data).toHaveLength(0);
+  expect((await operator.get(`/api/v1/admin/matches/${match}`)).body.data.status).toBe('Cancelled');
+  const reviews=(await operator.get(`/api/v1/admin/tournaments/${event}/refund-reviews`)).body.data;expect(reviews).toHaveLength(2);
+  const own=(await first.get('/api/v1/me/refund-reviews')).body.data;expect(own).toHaveLength(1);expect(own[0].registration_id).toBe(registrations[0]);
+  const outcome={resolution:'Refunded',amount_minor:5000,note:'Refund completed outside the platform, reference TEST-REFUND-001.'};
+  expect((await first.post(`/api/v1/admin/refund-reviews/${own[0].id}/decision`).set('X-CSRF-Token',firstCsrf).send(outcome)).status).toBe(403);
+  expect((await operator.post(`/api/v1/admin/refund-reviews/${own[0].id}/decision`).set('X-CSRF-Token',adminCsrf).send({...outcome,amount_minor:6000})).status).toBe(409);
+  expect((await operator.post(`/api/v1/admin/refund-reviews/${own[0].id}/decision`).set('X-CSRF-Token',adminCsrf).send(outcome)).status).toBe(200);
+  expect((await operator.post(`/api/v1/admin/refund-reviews/${own[0].id}/decision`).set('X-CSRF-Token',adminCsrf).send(outcome)).status).toBe(409);
+  expect((await first.get('/api/v1/me/refund-reviews')).body.data[0]).toMatchObject({status:'Resolved',amount_minor:5000});
 });

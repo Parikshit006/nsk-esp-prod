@@ -19,7 +19,7 @@ try {await migrate(pool);await createAdmin(pool,'browser-admin@example.test','br
 catch(error) {await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();throw error;}
 await mkdir(resolve('.local'),{recursive:true});
 await writeFile(resolve('.local/e2e-schema'),schema);
-const config=readConfig({...process.env,DATABASE_URL:scoped.toString(),WEB_ORIGIN:'http://127.0.0.1:5173',NODE_ENV:'test'});
+const config=readConfig({...process.env,DATABASE_URL:scoped.toString(),PORT:'3002',WEB_ORIGIN:'http://127.0.0.1:5174',NODE_ENV:'test'});
 const server=createApp(config,pool).listen(config.PORT);
 let closing=false;
 for(const signal of ['SIGTERM','SIGINT'] as const)process.on(signal,()=>{
