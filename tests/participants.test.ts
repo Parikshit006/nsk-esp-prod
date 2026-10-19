@@ -38,6 +38,10 @@ describe('Captain registration and roster gates',()=>{
     const operator=request.agent(app);const adminLogin=await operator.post('/api/v1/auth/login').send({email:'operator@example.test',password:'a-test-password-1234'});const adminCsrf=adminLogin.body.data.csrf_token as string;
     const adminPost=(path:string,body:object)=>operator.post(path).set('X-CSRF-Token',adminCsrf).send(body);
     const queue=await operator.get(`/api/v1/admin/tournaments/${eventId}/registrations`);expect(queue.body.data).toHaveLength(1);
+    const foreignTeam=crypto.randomUUID(),foreignRegistration=crypto.randomUUID(),foreignIgn='ＥＸＡＣＴ•ぬ•ＩＧＮ';await pool.query('INSERT INTO teams(id,captain_id,name) VALUES($1,$2,$3)',[foreignTeam,(await pool.query("SELECT id FROM accounts WHERE email='operator@example.test'")).rows[0].id,'Other roster team']);await pool.query("INSERT INTO registrations(id,tournament_id,team_id,name_key,status,payment_status) VALUES($1,$2,$3,'other roster team','Submitted','NotRequired')",[foreignRegistration,eventId,foreignTeam]);await pool.query("INSERT INTO roster_entries(id,tournament_id,registration_id,display_name,ign_raw,ign_exact,role) VALUES($1,$2,$3,'Private other player',$4,true,'Player')",[crypto.randomUUID(),eventId,foreignRegistration,foreignIgn]);
+    const flagged=await agent.get(`/api/v1/registrations/${rid}`);expect(flagged.body.data.roster[0].possible_name_collision).toBe(true);expect(JSON.stringify(flagged.body)).not.toContain(foreignIgn);
+    expect((await operator.get(`/api/v1/admin/registrations/${rid}`)).body.data.roster[0].possible_name_collision).toBe(true);
+    expect((await pool.query('SELECT roster_version,algorithm_version,raw_value,match_key,skeleton_key FROM roster_ign_derivations WHERE roster_entry_id=$1',[captain.body.data.id])).rows[0]).toMatchObject({roster_version:1,algorithm_version:'unicode-1',raw_value:'Exact ぬ IGN',match_key:'exact ぬ ign',skeleton_key:'exactぬign'});
     const earlyApproval=await adminPost(`/api/v1/admin/registrations/${rid}/decision`,{expected_version:4,decision:'approve'});expect(earlyApproval.status).toBe(409);expect(earlyApproval.body.error.code).toBe('GATE_BLOCKED');
     const eligibilityReview=await adminPost(`/api/v1/admin/registrations/${rid}/eligibility`,{expected_version:4,approved:true,note:'College eligibility checked against the registration note.'});expect(eligibilityReview.status).toBe(200);
     const confirmed=await adminPost(`/api/v1/admin/roster-entries/${player.body.data.id}/confirm-ign`,{expected_version:5,note:'Checked exact spelling against organizer supplied evidence.'});expect(confirmed.status).toBe(200);
@@ -67,6 +71,7 @@ describe('Captain registration and roster gates',()=>{
     expect((await post(path,correction)).status).toBe(409);
     const detail=(await agent.get(`/api/v1/registrations/${rid}`)).body.data;
     expect(detail.roster[0]).toMatchObject({ign_raw:'Corrected IGN',ign_exact:false,game_uid:'54321'});expect(detail.roster[0].account_id).toBeTruthy();
+    expect((await pool.query('SELECT roster_version,raw_value FROM roster_ign_derivations WHERE roster_entry_id=$1 ORDER BY roster_version',[captain.body.data.id])).rows).toMatchObject([{roster_version:1,raw_value:'CorrectionCaptain'},{roster_version:2,raw_value:'Corrected IGN'}]);
     expect((await pool.query("SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='roster.corrected'",[captain.body.data.id])).rowCount).toBe(1);
     await pool.query("UPDATE tournaments SET registration_close_at=now()-interval '1 second' WHERE id=$1",[eventId]);
     expect((await post(path,{...correction,expected_version:3})).status).toBe(409);

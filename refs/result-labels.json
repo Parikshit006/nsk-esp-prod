@@ -1,0 +1,38 @@
+{
+  "source": "User-supplied transcription, 20 October 2026",
+  "notes": "Visual labels for an OCR benchmark only. Approximate names are not verified player identities. null means cropped, obscured, or unknown; do not score it as an OCR error. Player order is top-left, top-right, bottom-left, bottom-right where visible.",
+  "images": [
+    {
+      "file": "WhatsApp Image 2026-10-19 at 1.48.33 PM.jpeg",
+      "placements": [
+        {"rank":1,"players":[["V@ESHU",8,"approximate"],["VIRAT",5,"approximate"],["PAGAL",4,"approximate"],[null,null,"unknown"]]},
+        {"rank":2,"players":[["ANIL 1K",0,"visible"],["SORRY BABY",2,"approximate"],[null,1,"unknown"],["JAYDIP 2K",2,"visible"]]},
+        {"rank":3,"players":[["8be8he8",5,"approximate"],["ChaneyE3810P",3,"visible"],["neeraj.rai,",3,"visible"],[null,null,"unknown"]]},
+        {"rank":4,"players":[["MORTGAX",4,"approximate"],["VIPULSINH",1,"approximate"],["Do OR DIE",4,"approximate"],["King Gaming",1,"approximate"]]},
+        {"rank":5,"players":[["WASEEM-STAR",1,"visible"],["DEVIL YT 222",1,"visible"],["BAGHEERA",3,"visible"],["GJ SENTU !!",7,"visible"]]},
+        {"rank":6,"players":[["Pikachu",0,"approximate"],[null,1,"unknown"],[null,1,"unknown"],[null,3,"unknown"]]},
+        {"rank":7,"players":[["DauD_1204",1,"approximate"],[null,0,"unknown"],["Kerr95074z",0,"approximate"],["fksmzmz",0,"approximate"]]},
+        {"rank":8,"players":[["N06575c48bd4",1,"approximate"],[null,2,"unknown"],["kngkavi",1,"approximate"],[null,null,"unknown"]]},
+        {"rank":9,"players":[["Rather841586",0,"visible"],[null,0,"unknown"],["fjfvdvk",1,"approximate"],[null,null,"unknown"]]},
+        {"rank":10,"players":[[null,1,"unknown"],["BK**",0,"approximate"],["zennssi",1,"approximate"],[null,null,"unknown"]]},
+        {"rank":11,"partial":true,"players":[["AneesZa5110Y",0,"approximate"],[null,null,"unknown"]]}
+      ]
+    },
+    {
+      "file": "WhatsApp Image 2026-10-19 at 1.48.33 PM (1).jpeg",
+      "placements": [
+        {"rank":1,"players":[["TUFAN",3,"approximate"],["V@ESHU",3,"approximate"],["VIRAT",6,"approximate"],["PAGAL",5,"approximate"]]},
+        {"rank":2,"players":[["Do OR DIE",1,"approximate"],["VIPULSINH",2,"approximate"],["N058884191db",0,"approximate"],["golu.(@lalg)",1,"approximate"]]},
+        {"rank":3,"players":[["Ankesh1212h",0,"approximate"],["sunil1221448B",5,"approximate"],["DEVRAJ",0,"approximate"],["HARDIK",0,"approximate"]]},
+        {"rank":4,"players":[["KAMA?BHATTI",2,"approximate"],[null,1,"unknown"],["A.S.R.47",0,"visible"],["KARAN13426",1,"visible"]]},
+        {"rank":5,"players":[["KOTALU",0,"approximate"],["Don__Takur",0,"visible"],["kayumB2k",0,"visible"],["GJ SENTU !!",0,"visible"]]},
+        {"rank":6,"players":[["King",2,"approximate"],[null,3,"unknown"],[null,5,"unknown"],[null,1,"unknown"]]},
+        {"rank":7,"players":[["GJ ANIL 1K",1,"visible"],["SORRY BABY",1,"approximate"],[null,3,"unknown"],["GJ JAYDIP 2K",1,"visible"]]},
+        {"rank":8,"players":[["RAHUL 1204",1,"approximate"],[null,7,"unknown"],["g______#______",0,"approximate"],["Wail7Y4ITF3",0,"approximate"]]},
+        {"rank":9,"players":[["TN-?",0,"unreadable"],["GBB_TUFAN",0,"approximate"],["Chris8A7W1(5)",0,"approximate"],[null,0,"unknown"]]},
+        {"rank":10,"players":[["TG-Rohit-777",2,"visible"],[null,0,"unknown"],["TG_Joker_777",0,"visible"],[null,0,"unknown"]]},
+        {"rank":11,"partial":true,"players":[["HAQUBHA",0,"approximate"],[null,null,"unknown"]]}
+      ]
+    }
+  ]
+}

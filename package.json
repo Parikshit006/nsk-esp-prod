@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "db:migrate": "tsx apps/api/src/migrate-cli.ts",
     "ops:recovery-drill": "tsx apps/api/src/recovery-drill.ts",
+    "ops:ocr-benchmark": "tsx apps/api/src/ocr-benchmark.ts",
     "admin:create": "tsx apps/api/src/create-admin.ts"
   },
   "dependencies": {

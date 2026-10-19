@@ -5,6 +5,7 @@ import {z} from 'zod';
 import {rosterInputSchema} from '../../../packages/shared/registration.js';
 import {requireAccount,requireAdmin,requireCsrf} from './auth.js';
 import {notifyRegistration} from './notification-routes.js';
+import {recordIgnForms} from './ign.js';
 const uuid=z.uuid();
 const requestSchema=rosterInputSchema.omit({role:true,self:true}).extend({entry_id:uuid,reason:z.string().trim().min(10).max(1000)}).strict();
 const decisionSchema=z.object({approved:z.boolean(),note:z.string().trim().min(10).max(1000)}).strict();
@@ -49,7 +50,8 @@ export function rosterChangeRouter(pool:Pool){const router=Router();
     const roster=await client.query<{id:string;role:string;ign_raw:string}>("SELECT id,role,ign_raw FROM roster_entries WHERE registration_id=$1 AND status='Active' FOR UPDATE",[peek.rows[0].registration_id]);const entry=roster.rows.find(row=>row.id===change.roster_entry_id);if(!entry)return 'entry' as const;
     if(roster.rows.some(row=>row.id!==entry.id&&key(row.ign_raw)===key(change.proposed_ign_raw)))return 'duplicate' as const;
     await client.query('UPDATE roster_invitations SET revoked_at=now() WHERE roster_entry_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL',[entry.id]);
-    await client.query("UPDATE roster_entries SET display_name=$1,ign_raw=$2,ign_exact=$3,game_uid=$4,account_id=CASE WHEN role='Captain' THEN account_id ELSE NULL END,ign_admin_confirmed_at=NULL,ign_admin_confirmed_by=NULL,ign_admin_note=NULL,version=version+1 WHERE id=$5",[change.proposed_display_name,change.proposed_ign_raw,change.proposed_ign_exact,change.proposed_game_uid,entry.id]);
+    const changed=await client.query<{version:number}>("UPDATE roster_entries SET display_name=$1,ign_raw=$2,ign_exact=$3,game_uid=$4,account_id=CASE WHEN role='Captain' THEN account_id ELSE NULL END,ign_admin_confirmed_at=NULL,ign_admin_confirmed_by=NULL,ign_admin_note=NULL,version=version+1 WHERE id=$5 RETURNING version",[change.proposed_display_name,change.proposed_ign_raw,change.proposed_ign_exact,change.proposed_game_uid,entry.id]);
+    await recordIgnForms(client,entry.id,changed.rows[0]!.version,change.proposed_ign_raw);
     await client.query("UPDATE registrations SET approval_status='Unreviewed',approval_decided_by=NULL,approval_decided_at=NULL,approval_reason=NULL,eligibility_status='Pending',eligibility_reviewed_by=NULL,eligibility_reviewed_at=NULL,eligibility_review_note=NULL,version=version+1 WHERE id=$1",[peek.rows[0].registration_id]);
    }
    await client.query("UPDATE roster_change_requests SET status=$1,decided_by=$2,decided_at=now(),decision_note=$3 WHERE id=$4",[body.data.approved?'Approved':'Rejected',res.locals.admin.id,body.data.note,id.data]);

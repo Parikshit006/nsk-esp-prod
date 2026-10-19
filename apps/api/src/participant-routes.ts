@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import { registrationInputSchema, rosterInputSchema, submitRegistrationSchema, teamInputSchema } from '../../../packages/shared/registration.js';
 import { requireAccount, requireCsrf } from './auth.js';
+import {possibleIgnCollision,recordIgnForms} from './ign.js';
 
 const uuid=z.uuid();
 const withdrawSchema=z.object({expected_version:z.number().int().positive(),reason:z.string().trim().min(10).max(1000)}).strict();
@@ -48,7 +49,7 @@ export function participantRouter(pool:Pool){
   });
   router.get('/registrations/:id',async(req,res)=>{
     const id=uuid.safeParse(req.params.id);if(!id.success)return fail(res,400,'VALIDATION_FAILED','Invalid registration ID.');
-    const client=await pool.connect();try{const registration=await ownedRegistration(client,id.data,res.locals.admin.id,false);if(!registration)return fail(res,404,'NOT_FOUND','Registration not found.');const roster=await client.query('SELECT id,display_name,ign_raw,ign_exact,game_uid,role,account_id,status,version FROM roster_entries WHERE registration_id=$1 AND status=$2 ORDER BY created_at,id',[id.data,'Active']);return res.json({data:{...registration,roster:roster.rows}});}finally{client.release();}
+    const client=await pool.connect();try{const registration=await ownedRegistration(client,id.data,res.locals.admin.id,false);if(!registration)return fail(res,404,'NOT_FOUND','Registration not found.');const roster=await client.query<{ign_raw:string}>('SELECT id,display_name,ign_raw,ign_exact,game_uid,role,account_id,status,version FROM roster_entries WHERE registration_id=$1 AND status=$2 ORDER BY created_at,id',[id.data,'Active']);const rows=[];for(const entry of roster.rows)rows.push({...entry,possible_name_collision:await possibleIgnCollision(client,registration.tournament_id,id.data,entry.ign_raw)});return res.json({data:{...registration,roster:rows}});}finally{client.release();}
   });
   router.post('/registrations/:id/roster',async(req,res)=>{
     const id=uuid.safeParse(req.params.id),parsed=rosterInputSchema.safeParse(req.body);if(!id.success||!parsed.success)return fail(res,400,'VALIDATION_FAILED','Check the roster entry and version.');
@@ -66,9 +67,11 @@ export function participantRouter(pool:Pool){
         if(parsed.data.role==='Captain'&&(!parsed.data.self||roster.rows.some(row=>row.role==='Captain')))return 'captain' as const;
         if(parsed.data.self&&parsed.data.role!=='Captain')return 'captain' as const;
         const entryId=randomUUID();await client.query('INSERT INTO roster_entries(id,tournament_id,registration_id,account_id,display_name,ign_raw,ign_exact,game_uid,role) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[entryId,registration.tournament_id,id.data,parsed.data.self?res.locals.admin.id:null,parsed.data.display_name,parsed.data.ign_raw,parsed.data.ign_exact,parsed.data.game_uid,parsed.data.role]);
+        await recordIgnForms(client,entryId,1,parsed.data.ign_raw);
+        const possible_name_collision=await possibleIgnCollision(client,registration.tournament_id,id.data,parsed.data.ign_raw);
         await client.query('UPDATE registrations SET version=version+1 WHERE id=$1',[id.data]);
         await audit(client,res.locals.admin.id,'roster.added','roster_entry',entryId,null,{registration_id:id.data,ign_raw:parsed.data.ign_raw,ign_exact:parsed.data.ign_exact,role:parsed.data.role});
-        return {id:entryId,registration_id:id.data,version:parsed.data.expected_version+1,...parsed.data};
+        return {id:entryId,registration_id:id.data,version:parsed.data.expected_version+1,possible_name_collision,...parsed.data};
       });
       if(data===null)return fail(res,404,'NOT_FOUND','Registration not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Registration changed. Reload and try again.');if(data==='locked')return fail(res,409,'NOT_ELIGIBLE','Roster is locked in this registration state.');if(data==='full')return fail(res,409,'GATE_BLOCKED','The roster is full.');if(data==='duplicate')return fail(res,409,'DUPLICATE','This in-game name is already on your roster.');if(data==='captain')return fail(res,409,'GATE_BLOCKED','Add one captain entry linked to your account.');return res.status(201).json({data});
     }catch(error){if((error as {code?:string}).code==='23505')return fail(res,409,'DUPLICATE','This account or captain entry is already on an active roster.');throw error;}
@@ -85,7 +88,8 @@ export function participantRouter(pool:Pool){
       const entry=found.rows.find(row=>row.id===body.data.entry_id);if(!entry)return null;
       if(found.rows.some(row=>row.id!==entry.id&&key(row.ign_raw)===key(body.data.ign_raw)))return 'duplicate' as const;
       await client.query('UPDATE roster_invitations SET revoked_at=now() WHERE roster_entry_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL',[entry.id]);
-      await client.query("UPDATE roster_entries SET display_name=$1,ign_raw=$2,ign_exact=$3,game_uid=$4,account_id=CASE WHEN role='Captain' THEN account_id ELSE NULL END,ign_admin_confirmed_at=NULL,ign_admin_confirmed_by=NULL,ign_admin_note=NULL,version=version+1 WHERE id=$5",[body.data.display_name,body.data.ign_raw,body.data.ign_exact,body.data.game_uid,entry.id]);
+      const changed=await client.query<{version:number}>("UPDATE roster_entries SET display_name=$1,ign_raw=$2,ign_exact=$3,game_uid=$4,account_id=CASE WHEN role='Captain' THEN account_id ELSE NULL END,ign_admin_confirmed_at=NULL,ign_admin_confirmed_by=NULL,ign_admin_note=NULL,version=version+1 WHERE id=$5 RETURNING version",[body.data.display_name,body.data.ign_raw,body.data.ign_exact,body.data.game_uid,entry.id]);
+      await recordIgnForms(client,entry.id,changed.rows[0]!.version,body.data.ign_raw);
       await client.query("UPDATE registrations SET eligibility_status='Pending',eligibility_reviewed_by=NULL,eligibility_reviewed_at=NULL,eligibility_review_note=NULL,version=version+1 WHERE id=$1",[reg.id]);
       await audit(client,res.locals.admin.id,'roster.corrected','roster_entry',entry.id,entry,{display_name:body.data.display_name,ign_raw:body.data.ign_raw,game_uid:body.data.game_uid,reason:body.data.reason,player_link_revoked:entry.role!=='Captain'});
       return {id:entry.id,version:reg.version+1};
