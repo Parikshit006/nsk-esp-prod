@@ -207,6 +207,10 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await expect(page.getByText('Result verified and scored.')).toBeVisible();
   await page.getByRole('button',{name:'Publish result'}).click();
   await expect(page.getByText('Result published. Standings updated.')).toBeVisible();
+  await page.getByRole('listitem').filter({hasText:`Blue Squad ${suffix}`}).getByRole('button',{name:'Review team'}).click();
+  await page.getByLabel('Decision note or reason').fill('Organizer disqualified this team after reviewing the published result.');
+  await page.getByRole('button',{name:'Disqualify team'}).click();
+  await expect(page.getByText('Team disqualified. Standings recalculated.')).toBeVisible();
   await page.getByRole('button',{name:'Refresh final review'}).click();
   await expect(page.getByText('Event state:')).toContainText('Finalizing');
   await page.getByLabel('Final decision reason').fill('Checked the published result and final standings against the screenshot.');
@@ -217,6 +221,9 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await expect(page.getByRole('heading',{name:'Standings'})).toBeVisible();
   await expect(page.getByRole('heading',{name:'Final podium'})).toBeVisible();
   await expect(page.getByRole('row',{name:/Blue Squad/})).toBeVisible();
+  await expect(page.getByRole('row',{name:/Blue Squad.*Disqualified/})).toBeVisible();
+  await expect(page.locator('.public-podium').getByRole('listitem')).toContainText(`Red Squad ${suffix}`);
+  await expect(page.locator('.public-podium')).not.toContainText(`Blue Squad ${suffix}`);
   await expect(page.getByRole('heading',{name:'Match 1 · Bermuda'})).toBeVisible();
   expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
   await page.screenshot({path:`test-results/review-${suffix}.png`,fullPage:true});

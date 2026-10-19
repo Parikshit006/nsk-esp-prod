@@ -45,7 +45,7 @@ it('guards readiness, freezes rules on start and preserves attempts on interrupt
   expect((await operator.post(`/api/v1/admin/matches/${match}/evidence`).set('X-CSRF-Token',csrf).set('Content-Type','image/png').send(screenshot)).status).toBe(409);
   const evidenceResponse=await operator.get(`/api/v1/admin/evidence/${evidence}/image`);expect(evidenceResponse.status).toBe(200);expect(evidenceResponse.headers['content-type']).toContain('image/png');
   const rows=(reverse=false)=>registrations.map((registration,index)=>({registration_id:registration,placement:reverse?2-index:index+1,player_kills:[{roster_entry_id:entries[index],kills:index+1}],adjustment:reverse&&index===0?'6':'0'}));
-  const bad=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:9,evidence_id:evidence,reason:'Manual review of screenshot',rows:rows().slice(0,1)});expect(bad.status).toBe(400);
+  const bad=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:9,evidence_id:evidence,reason:'Manual review of screenshot',rows:rows().slice(0,1)});expect(bad.status).toBe(409);
   const drafted=await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:9,evidence_id:evidence,reason:'Manual review of screenshot',rows:rows()});expect(drafted.status).toBe(201);const resultId=drafted.body.data.id as string;
   expect((await request(app).get(`/api/v1/matches/${match}/results`)).status).toBe(404);
   const verified=await operator.post(`/api/v1/admin/results/${resultId}/verify`).set('X-CSRF-Token',csrf).send({expected_match_version:10});expect(verified.status).toBe(200);

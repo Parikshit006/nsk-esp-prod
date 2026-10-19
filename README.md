@@ -1,6 +1,6 @@
 # Tournament operations
 
-Evidence-first college Free Fire MAX tournament platform. **Current delivery: audited specifications, tournament publication, reusable scoring rules, free and paid-event registration, organizer review and slots, protected room details, manual evidence-backed results, public standings and final podium. This is not yet launch-ready.** OCR assistance, disqualification, dispute and recovery operations, and hosting remain unfinished.
+Evidence-first college Free Fire MAX tournament platform. **Current delivery: audited specifications, tournament publication, reusable scoring rules, free and paid-event registration, organizer review and slots, protected room details, manual evidence-backed results, configurable disqualification, public standings and final podium. This is not yet launch-ready.** OCR assistance, disputes, recovery operations, and hosting remain unfinished.
 
 Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/decision-log.md), [delivery progress](docs/progress.md), and [implemented API contracts](docs/api-contracts.md). Original specifications are preserved at the repository root.
 
@@ -47,4 +47,4 @@ Browser tests launch the API in a unique schema in `DATABASE_URL_TEST` and clean
 - `packages/shared`: validated response contracts, pure exact-decimal preview scoring and exact status catalog.
 - `tests`: unit/database integration and desktop/mobile browser acceptance checks.
 
-Next phases: disqualification, disputes, rescheduling and reopen/archive controls; then measured OCR assistance. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.
+Next phases: disputes, withdrawals, rescheduling and reopen/archive controls; then measured OCR assistance. Idempotency and production operations remain required before launch. A labeled screenshot corpus, hosting, retention and recovery objectives are still needed. The admin chooses scoring rules per tournament; reusable templates are available.
