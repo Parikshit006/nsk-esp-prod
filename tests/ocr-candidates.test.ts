@@ -15,3 +15,7 @@ it('offers only unique long-name hints and leaves ambiguous or short names for m
   expect(result.unmatched_roster_players).toBe(3);
   expect(result.warning).toContain('does not verify identity');
 });
+it('carries visible placement and player slot into a unique roster hint',()=>{
+  const result=suggestRosterNames([{text:'PLAYERONE 3 Eliminations',confidence:90,placement:6,slot:2}],[{roster_entry_id:'player-1',registration_id:'team-1',team_name:'Alpha',ign_raw:'PLAYERONE'}]);
+  expect(result.suggestions[0]).toMatchObject({placement:6,slot:2,registration_id:'team-1',roster_entry_id:'player-1'});
+});

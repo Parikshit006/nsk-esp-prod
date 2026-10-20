@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { requireAdmin, requireCsrf } from './auth.js';
 import {suggestRosterNames,type RosterCandidate} from './ocr-candidates.js';
 import type {OcrOutput} from './ocr.js';
+import {slotForOcrLine} from './result-layout.js';
 
 export function ocrRouter(pool:Pool){
   const router=Router();
@@ -14,7 +15,7 @@ export function ocrRouter(pool:Pool){
     const found=await pool.query<{id:string;status:string;attempts:number;output:OcrOutput|null;created_at:Date;completed_at:Date|null}>('SELECT id,status,attempts,output,created_at,completed_at FROM ocr_jobs WHERE evidence_id=$1',[req.params.id]);
     const job=found.rows[0];if(!job||job.status!=='Succeeded'||!Array.isArray(job.output?.lines))return res.json({data:job??null});
     const roster=await pool.query<RosterCandidate>("SELECT e.id roster_entry_id,e.registration_id,tm.name team_name,e.ign_raw FROM match_evidence ev JOIN matches m ON m.id=ev.match_id JOIN roster_entries e ON e.tournament_id=m.tournament_id AND e.status='Active' JOIN registrations r ON r.id=e.registration_id AND r.status='Submitted' AND r.approval_status='Approved' AND r.slot_status='Assigned' AND r.payment_status IN ('NotRequired','Verified','Waived') AND NOT r.payment_recheck_required JOIN teams tm ON tm.id=r.team_id JOIN slots s ON s.registration_id=r.id AND s.status='Assigned' WHERE ev.id=$1 ORDER BY tm.name,e.id",[req.params.id]);
-    const lines=job.output.layout?.rows.flatMap(row=>row.ocr_lines.map(line=>({...line,placement:row.placement})))??job.output.lines;
+    const lines=job.output.layout?.rows.flatMap(row=>row.ocr_lines.map(line=>({...line,placement:row.placement,slot:slotForOcrLine(row,line.box)})))??job.output.lines;
     return res.json({data:{...job,candidates:suggestRosterNames(lines,roster.rows)}});
   });
   router.post('/admin/evidence/:id/ocr',requireCsrf(pool),async(req,res)=>{

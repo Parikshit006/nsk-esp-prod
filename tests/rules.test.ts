@@ -19,6 +19,13 @@ beforeAll(async()=>{await admin.query(`CREATE SCHEMA ${schema}`);await migrate(p
 afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
 
 describe('Admin-controlled scoring rules and reusable templates',()=>{
+  it('scores the approved 12-place example with one point per kill',()=>{
+    const suggested=scoringRulesSchema.parse({...rules,points_per_kill:'1',placement_points:[12,9,8,7,6,5,4,3,2,1,0,0].map((points,index)=>({rank:index+1,points:String(points)})),kill_cap:null});
+    expect(previewScore(suggested,{placement:1,player_kills:[8,5,4,0],penalty:'0'}).match_points).toBe('29');
+    expect(previewScore(suggested,{placement:10,player_kills:[1,2],penalty:'0'}).match_points).toBe('4');
+    expect(previewScore(suggested,{placement:11,player_kills:[2],penalty:'0'}).match_points).toBe('2');
+    expect(previewScore(suggested,{placement:12,player_kills:[0],penalty:'0'}).match_points).toBe('0');
+  });
   it('uses exact decimal arithmetic and rejects incomplete or duplicate rules',()=>{
     const parsed=scoringRulesSchema.parse(rules);
     expect(previewScore(parsed,{placement:1,player_kills:[4,7],penalty:'-1.25'})).toEqual({verified_kills:11,scored_kills:10,kill_points:'12.5',placement_points:'12',penalty:'-1.25',match_points:'23.25'});

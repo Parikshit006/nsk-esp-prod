@@ -3,6 +3,11 @@ import sharp from 'sharp';
 export type KillHint={kills:number;ocr_confidence:number;source_text:string}|null;
 export type ResultRegion={placement:number;side:'left'|'right';left:number;top:number;width:number;height:number;ocr_lines:{text:string;confidence:number;box:{x0:number;y0:number;x1:number;y1:number}}[];kill_hints:[KillHint,KillHint,KillHint,KillHint]};
 export type ResultLayout={kind:'free-fire-two-column-v1';rows:ResultRegion[];cropped_or_hidden_placements:[11,12];warning:string};
+export function slotForOcrLine(row:Pick<ResultRegion,'width'|'height'|'side'>,box:{x0:number;y0:number;x1:number;y1:number}){
+  const column=box.x1<row.width*4*(row.side==='left'?0.68:0.73)?0:1;
+  const vertical=(box.y0+box.y1)/8<row.height/2?0:2;
+  return column+vertical;
+}
 
 const leftTops=[200,275,350,425,500];
 const rightTops=[200,265,330,395,460];
@@ -36,9 +41,7 @@ export function extractKillHints(row:ResultRegion):[KillHint,KillHint,KillHint,K
     const matches=[...line.text.matchAll(/(\d{1,2})\s*Eliminat/gi)];
     if(matches.length!==1)continue;
     const kills=Number(matches[0]![1]);if(kills>99)continue;
-    const column=line.box.x1<row.width*4*(row.side==='left'?0.68:0.73)?0:1;
-    const vertical=(line.box.y0+line.box.y1)/8<row.height/2?0:2;
-    const slot=column+vertical;
+    const slot=slotForOcrLine(row,line.box);
     if(conflicting.has(slot))continue;
     if(hints[slot]&&hints[slot].kills!==kills){hints[slot]=null;conflicting.add(slot);continue;}
     hints[slot]={kills,ocr_confidence:line.confidence,source_text:line.text};
