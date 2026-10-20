@@ -79,3 +79,13 @@ it('does not create an account from an unverified provider email',async()=>{
   expect((await pool.query('SELECT id FROM accounts WHERE email=$1',['unverified-oauth@example.test'])).rowCount).toBe(0);
   vi.unstubAllGlobals();
 });
+
+it('allows a full shared-network lobby to begin OAuth sign-in while retaining a rate limit',async()=>{
+  await pool.query('DELETE FROM login_attempts');
+  for(let player=0;player<100;player++){
+    const started=await request(app).get('/api/v1/auth/oauth/google/start?role=member&return_to=join');
+    expect(started.status).toBe(302);
+  }
+  const capped=await request(app).get('/api/v1/auth/oauth/google/start?role=member&return_to=join');
+  expect(capped.status).toBe(429);
+},15000);

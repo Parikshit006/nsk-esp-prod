@@ -60,7 +60,7 @@ export function oauthRouter(config:Config,pool:Pool){
     const parsed=requestSchema.safeParse(req.query);if(!parsed.success)return failure(res,400,'VALIDATION_FAILED','Choose a valid sign-in destination.');
     const key=digest(`oauth-start|${req.ip}`);
     const limit=await pool.query<{attempts:number}>("INSERT INTO login_attempts(key,attempts,window_started_at) VALUES($1,1,now()) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN login_attempts.window_started_at<now()-interval '15 minutes' THEN 1 ELSE login_attempts.attempts+1 END,window_started_at=CASE WHEN login_attempts.window_started_at<now()-interval '15 minutes' THEN now() ELSE login_attempts.window_started_at END RETURNING attempts",[key]);
-    if(limit.rows[0]!.attempts>30)return failure(res,429,'RATE_LIMITED','Too many sign-in attempts. Try again later.');
+    if(limit.rows[0]!.attempts>100)return failure(res,429,'RATE_LIMITED','Too many sign-in attempts. Try again later.');
     const state=nonce(),browser=nonce(),verifier=nonce();
     const challenge=createHash('sha256').update(verifier).digest('base64url');
     await pool.query("DELETE FROM oauth_flows WHERE expires_at<now()-interval '1 hour'");
