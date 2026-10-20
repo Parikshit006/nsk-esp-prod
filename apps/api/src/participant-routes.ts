@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { registrationInputSchema, rosterInputSchema, submitRegistrationSchema, teamInputSchema } from '../../../packages/shared/registration.js';
 import { requireAccount, requireCsrf } from './auth.js';
 import {possibleIgnCollision,recordIgnForms} from './ign.js';
+import {notifyRegistration} from './notification-routes.js';
 
 const uuid=z.uuid();
 const withdrawSchema=z.object({expected_version:z.number().int().positive(),reason:z.string().trim().min(10).max(1000)}).strict();
@@ -123,8 +124,10 @@ export function participantRouter(pool:Pool){
       await client.query('UPDATE roster_invitations SET revoked_at=now() WHERE registration_id=$1 AND accepted_at IS NULL AND revoked_at IS NULL',[reg.id]);
       await client.query("UPDATE roster_entries SET status='Removed',version=version+1 WHERE registration_id=$1 AND status='Active'",[reg.id]);
       await client.query("UPDATE registrations SET status='Withdrawn',slot_status=$1,version=version+1 WHERE id=$2",[slot.rows[0]?'Released':reg.slot_status,reg.id]);
-      await audit(client,res.locals.admin.id,'registration.withdrawn','registration',reg.id,{status:reg.status,slot_status:reg.slot_status},{status:'Withdrawn',slot_status:slot.rows[0]?'Released':reg.slot_status,reason:body.data.reason,refund:'handled outside platform'});
-      return {id:reg.id,status:'Withdrawn',slot_status:slot.rows[0]?'Released':reg.slot_status,version:reg.version+1};
+      const proof=reg.fee_minor>0?await client.query('SELECT 1 FROM payment_proofs WHERE registration_id=$1 LIMIT 1',[reg.id]):{rowCount:0};
+      if(proof.rowCount){await client.query("INSERT INTO refund_reviews(tournament_id,registration_id,source,request_reason) VALUES($1,$2,'Withdrawal',$3) ON CONFLICT(registration_id) DO NOTHING",[reg.tournament_id,reg.id,body.data.reason]);await notifyRegistration(client,reg.id,'Refund review opened','Your paid-entry withdrawal has been sent to the organizer for an off-platform refund decision.');}
+      await audit(client,res.locals.admin.id,'registration.withdrawn','registration',reg.id,{status:reg.status,slot_status:reg.slot_status},{status:'Withdrawn',slot_status:slot.rows[0]?'Released':reg.slot_status,reason:body.data.reason,refund_review_opened:!!proof.rowCount});
+      return {id:reg.id,status:'Withdrawn',slot_status:slot.rows[0]?'Released':reg.slot_status,version:reg.version+1,refund_review_opened:!!proof.rowCount};
     });
     if(data===null)return fail(res,404,'NOT_FOUND','Registration not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Registration changed. Reload and try again.');if(data==='locked')return fail(res,409,'INVALID_TRANSITION','Withdrawal is available only before match operations begin.');if(data==='started')return fail(res,409,'GATE_BLOCKED','A match has started; ask the organizer to resolve this team under event rules.');return res.json({data});
   });

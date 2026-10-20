@@ -53,3 +53,28 @@ it('reviews private paid proofs, flags duplicates and gates approval and room ac
   expect((await operator.post(`/api/v1/admin/refund-reviews/${own[0].id}/decision`).set('X-CSRF-Token',adminCsrf).send(outcome)).status).toBe(409);
   expect((await first.get('/api/v1/me/refund-reviews')).body.data[0]).toMatchObject({status:'Resolved',amount_minor:5000});
 });
+it('opens one private refund review when a paid team withdraws before play',async()=>{
+  const eventId=crypto.randomUUID(),registrationId=crypto.randomUUID(),teamId=crypto.randomUUID();
+  const captainId=(await request(app).post('/api/v1/auth/register').send({display_name:'Withdrawal captain',email:'withdrawal-captain@example.test',password:'captain-password-1234'})).body.data.id as string;
+  await pool.query("INSERT INTO tournaments(id,name,capacity,timezone,status,created_by,team_size,fee_minor,currency,payment_instructions,payment_proof_max_bytes) VALUES($1,'Withdrawal event',12,'Asia/Kolkata','RegistrationClosed',(SELECT id FROM accounts WHERE email='payment-operator@example.test'),1,5000,'INR','Pay organizer',65536)",[eventId]);
+  await pool.query("INSERT INTO teams(id,captain_id,name) VALUES($1,$2,'Withdrawal team')",[teamId,captainId]);
+  await pool.query("INSERT INTO registrations(id,tournament_id,team_id,name_key,status,payment_status) VALUES($1,$2,$3,'withdrawal team','Submitted','Pending')",[registrationId,eventId,teamId]);
+  const captain=request.agent(app),operator=request.agent(app),other=request.agent(app);
+  const captainCsrf=(await captain.post('/api/v1/auth/login').send({email:'withdrawal-captain@example.test',password:'captain-password-1234'})).body.data.csrf_token as string;
+  const operatorCsrf=(await operator.post('/api/v1/auth/login').send({email:'payment-operator@example.test',password:'operator-password-1234'})).body.data.csrf_token as string;
+  await other.post('/api/v1/auth/login').send({email:'payment-captain-2@example.test',password:'captain-password-1234'});
+  const image=await sharp({create:{width:16,height:16,channels:3,background:'#eeddcc'}}).png().toBuffer();
+  const proof=await captain.post(`/api/v1/registrations/${registrationId}/payment-proofs`).set('X-CSRF-Token',captainCsrf).set('Content-Type','image/png').set('X-Payment-Reference','WITHDRAW-REF-1').set('X-Payment-Amount-Minor','5000').send(image);
+  expect(proof.status).toBe(201);
+  const reason='Our team cannot attend on the scheduled date.';
+  const withdrawn=await captain.post(`/api/v1/registrations/${registrationId}/withdraw`).set('X-CSRF-Token',captainCsrf).send({expected_version:proof.body.data.registration_version,reason});
+  expect(withdrawn.status).toBe(200);expect(withdrawn.body.data.refund_review_opened).toBe(true);
+  const reviews=(await operator.get(`/api/v1/admin/tournaments/${eventId}/refund-reviews`)).body.data;
+  expect(reviews).toHaveLength(1);expect(reviews[0]).toMatchObject({source:'Withdrawal',request_reason:reason,status:'Pending'});
+  expect((await captain.get('/api/v1/me/refund-reviews')).body.data.find((item:{registration_id:string})=>item.registration_id===registrationId)).toMatchObject({source:'Withdrawal',request_reason:reason});
+  expect((await other.get('/api/v1/me/refund-reviews')).body.data.find((item:{registration_id:string})=>item.registration_id===registrationId)).toBeUndefined();
+  expect((await captain.post(`/api/v1/registrations/${registrationId}/withdraw`).set('X-CSRF-Token',captainCsrf).send({expected_version:withdrawn.body.data.version,reason})).status).toBe(409);
+  expect((await operator.get(`/api/v1/admin/tournaments/${eventId}/refund-reviews`)).body.data).toHaveLength(1);
+  const decision={resolution:'NoRefundDue',amount_minor:0,note:'Payment was not received by the organizer.'};
+  expect((await operator.post(`/api/v1/admin/refund-reviews/${reviews[0].id}/decision`).set('X-CSRF-Token',operatorCsrf).send(decision)).status).toBe(200);
+});
