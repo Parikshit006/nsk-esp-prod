@@ -19,7 +19,7 @@ beforeAll(async()=>{
   const client=await pool.connect();try{await client.query('BEGIN');
     await client.query("INSERT INTO tournaments(id,name,capacity,timezone,status,created_by,team_size,fee_minor,currency) VALUES($1,'Match flow test',12,'Asia/Kolkata','RegistrationClosed',$2,1,0,'INR')",[event,operator]);
     await client.query("INSERT INTO tournament_rulesets(id,tournament_id,version_no,config,status,created_by) VALUES($1,$2,1,$3,'Confirmed',$4)",[crypto.randomUUID(),event,JSON.stringify({points_per_kill:'1',placement_points:[{rank:1,points:'10'},{rank:2,points:'5'}],kill_cap:null,tie_break_order:['admin_decision'],disqualification_policy:'void_all_results',cancelled_match_policy:'exclude_all_results'}),operator]);
-    for(let n=1;n<=2;n++){const team=crypto.randomUUID(),registration=crypto.randomUUID(),entry=crypto.randomUUID();registrations.push(registration);entries.push(entry);await client.query('INSERT INTO teams(id,captain_id,name) VALUES($1,$2,$3)',[team,operator,`Team ${n}`]);await client.query("INSERT INTO registrations(id,tournament_id,team_id,name_key,status,payment_status,approval_status,slot_status,eligibility_status) VALUES($1,$2,$3,$4,'Submitted','NotRequired','Approved','Assigned','Verified')",[registration,event,team,`team ${n}`]);await client.query('INSERT INTO roster_entries(id,tournament_id,registration_id,display_name,ign_raw,ign_exact,role) VALUES($1,$2,$3,$4,$5,true,$6)',[entry,event,registration,`Player ${n}`,`IGN${n}`,'Captain']);await client.query('INSERT INTO slots(id,tournament_id,slot_no,registration_id,assigned_by) VALUES($1,$2,$3,$4,$5)',[crypto.randomUUID(),event,n,registration,operator]);}
+    for(let n=1;n<=2;n++){const team=crypto.randomUUID(),registration=crypto.randomUUID(),entry=crypto.randomUUID();registrations.push(registration);entries.push(entry);await client.query('INSERT INTO teams(id,captain_id,name) VALUES($1,$2,$3)',[team,operator,`Team ${n}`]);await client.query("INSERT INTO registrations(id,tournament_id,team_id,name_key,status,payment_status,approval_status,slot_status,eligibility_status) VALUES($1,$2,$3,$4,'Submitted','NotRequired','Approved','Assigned','Verified')",[registration,event,team,`team ${n}`]);await client.query('INSERT INTO roster_entries(id,tournament_id,registration_id,display_name,ign_raw,ign_exact,role) VALUES($1,$2,$3,$4,$5,true,$6)',[entry,event,registration,`Player ${n}`,n===1?'PLAYERONE':'PLAYERTWO','Captain']);await client.query('INSERT INTO slots(id,tournament_id,slot_no,registration_id,assigned_by) VALUES($1,$2,$3,$4,$5)',[crypto.randomUUID(),event,n,registration,operator]);}
     await client.query("INSERT INTO matches(id,tournament_id,match_no,map,scheduled_at,ends_at,current_attempt_id) VALUES($1,$2,1,'Bermuda',now()+interval '1 hour',now()+interval '2 hours',$3)",[match,event,attempt]);await client.query('INSERT INTO match_attempts(id,match_id,attempt_no) VALUES($1,$2,1)',[attempt,match]);await client.query('COMMIT');
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 });
@@ -51,10 +51,10 @@ it('guards readiness, freezes rules on start and preserves attempts on interrupt
   const queued=await operator.post(ocrPath).set('X-CSRF-Token',csrf);expect(queued.status).toBe(202);
   expect((await operator.post(ocrPath).set('X-CSRF-Token',csrf)).body.data.id).toBe(queued.body.data.id);
   let reads=0;
-  const reader=async()=>{reads++;return {text:'IGN1 3',confidence:60,lines:[],warning:'Review required'};};
+  const reader=async()=>{reads++;return {text:'PLAYERONE 3',confidence:60,lines:[{text:'PLAYERONE 3',confidence:60,box:{x0:0,y0:0,x1:10,y1:10}}],warning:'Review required'};};
   await Promise.all([runOcrJob(pool,reader),runOcrJob(pool,reader)]);
   expect(reads).toBe(1);
-  expect((await operator.get(ocrPath)).body.data).toMatchObject({status:'Succeeded',output:{text:'IGN1 3'}});
+  expect((await operator.get(ocrPath)).body.data).toMatchObject({status:'Succeeded',output:{text:'PLAYERONE 3'},candidates:{suggestions:[{roster_entry_id:entries[0],team_name:'Team 1',ign_raw:'PLAYERONE',ocr_line:'PLAYERONE 3'}]}});
   // A success never becomes a new attempt when a client retries its request.
   await operator.post(ocrPath).set('X-CSRF-Token',csrf);
   expect(await runOcrJob(pool,reader)).toBe(false);
