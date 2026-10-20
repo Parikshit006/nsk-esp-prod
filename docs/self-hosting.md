@@ -17,6 +17,8 @@ Run `pnpm ops:recovery-drill` with `DATABASE_URL_TEST` naming a database ending 
 
 The API runs a local English OCR worker with one active job per process, a 20-job pending limit, 90-second recognition timeout, leases and at most three attempts. Successful readings are reused for the same evidence. Original images and readings remain private to admins. Allow CPU and memory headroom and measure representative jobs before selecting the server size. Derived text is also personal data and must be included in retention policy implementation.
 
+The API also checks for due room releases every 15 seconds and writes one in-app notice for each currently eligible captain or linked player. A database marker prevents duplicate release notices across app replicas. The notice contains no room ID or password; recipients open protected match access to view them. Monitor the app error log for failed checks, since email and push alerts are not configured.
+
 1. Take an encrypted PostgreSQL custom-format backup at least daily and before each deployment. The private payment and result images are stored in PostgreSQL, so they are included. Keep a separate encrypted off-server copy and a record of backup completion.
 2. Keep a rolling 30-day backup set as a provisional operating choice. The final schedule must account for any longer legal hold and for the deletion policy below. Do not leave decrypted exports in shared folders.
 3. Test a restore into an isolated database at least monthly. Verify migration level, row counts, a sample event's published result and podium, and decryption of a test room credential using the separately stored key. Record elapsed recovery time; choose an RTO from this measured result.
