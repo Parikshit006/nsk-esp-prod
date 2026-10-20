@@ -11,8 +11,10 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByLabel('Password').fill('browser-test-password-1234');
   await page.getByRole('button',{name:'Sign in'}).click();
   await expect(page.getByRole('heading',{name:'Build a rule set'})).toBeVisible();
+  await expect(page.getByLabel('Points per kill')).toHaveValue('1');
+  await expect(page.getByLabel('Points for rank 12')).toHaveValue('0');
   await page.getByLabel('Points per kill').fill('1.25');
-  await page.getByLabel('Points for rank 1').fill('12');
+  await page.getByLabel('Points for rank 1',{exact:true}).fill('12');
   await page.getByLabel('Disqualification policy').selectOption('keep_points_exclude_podium');
   await page.getByLabel('Cancelled match policy').selectOption('exclude_all_results');
   await page.getByLabel('Template name').fill(`Campus rules ${suffix}`);
@@ -208,10 +210,14 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByRole('button',{name:'Finish match'}).click();
   await expect(page.getByText('Match is now AwaitingEvidence.')).toBeVisible();
   await page.getByRole('button',{name:'Refresh teams and matches'}).click();
-  const screenshot=await sharp({create:{width:16,height:16,channels:3,background:'#ffffff'}}).png().toBuffer();
+  const gold=await sharp({create:{width:510,height:220,channels:3,background:'#634505'}}).png().toBuffer();
+  const screenshot=await sharp({create:{width:1600,height:717,channels:3,background:'#11171d'}}).composite([{input:gold,left:330,top:200}]).png().toBuffer();
   await page.getByLabel('Original result screenshot (PNG or JPEG, up to 5 MB)').setInputFiles({name:'result.png',mimeType:'image/png',buffer:screenshot});
   await page.getByRole('button',{name:'Upload screenshot'}).click();
   await expect(page.getByText('Original screenshot stored for this attempt.')).toBeVisible();
+  await page.getByRole('button',{name:'Read screenshot locally'}).click();
+  await expect(page.getByRole('heading',{name:'Ten visible placement rows'})).toBeVisible({timeout:90000});
+  await expect(page.locator('.ocr-placement-list > li')).toHaveCount(10);
   const placementFields=page.getByLabel(/^Placement for /);
   for(let i=0;i<await placementFields.count();i++) await placementFields.nth(i).fill(String(i+1));
   const killFields=page.getByLabel(/^Kills · /);

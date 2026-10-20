@@ -7,6 +7,7 @@ import { migrate } from '../../apps/api/src/migrations.js';
 import { createAdmin } from '../../apps/api/src/auth.js';
 import { createApp } from '../../apps/api/src/app.js';
 import { readConfig } from '../../apps/api/src/config.js';
+import {startOcrWorker} from '../../apps/api/src/ocr.js';
 
 const source=process.env.DATABASE_URL_TEST;
 if(!source||!new URL(source).pathname.endsWith('_test'))throw new Error('Browser tests require a separate DATABASE_URL_TEST ending in _test.');
@@ -21,8 +22,9 @@ await mkdir(resolve('.local'),{recursive:true});
 await writeFile(resolve('.local/e2e-schema'),schema);
 const config=readConfig({...process.env,DATABASE_URL:scoped.toString(),PORT:'3002',WEB_ORIGIN:'http://127.0.0.1:5174',NODE_ENV:'test'});
 const server=createApp(config,pool).listen(config.PORT);
+const stopOcr=startOcrWorker(pool);
 let closing=false;
 for(const signal of ['SIGTERM','SIGINT'] as const)process.on(signal,()=>{
   if(closing)return;closing=true;
-  server.close(()=>{void (async()=>{await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();process.exit(0);})().catch(()=>process.exit(1));});
+  server.close(()=>{void (async()=>{await stopOcr();await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();process.exit(0);})().catch(()=>process.exit(1));});
 });
