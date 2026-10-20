@@ -58,7 +58,8 @@ export function authRouter(config:Config,pool:Pool,sendRecovery?:RecoverySender,
   const deliverVerification=sendVerification??verificationSender(config);
   router.post('/register',async(req,res)=>{
     const signupKey=digest(`signup-ip|${req.ip}`),signupLimit=await pool.query<{attempts:number}>("INSERT INTO login_attempts(key,attempts,window_started_at) VALUES($1,1,now()) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN login_attempts.window_started_at<now()-interval '15 minutes' THEN 1 ELSE login_attempts.attempts+1 END,window_started_at=CASE WHEN login_attempts.window_started_at<now()-interval '15 minutes' THEN now() ELSE login_attempts.window_started_at END RETURNING attempts",[signupKey]);
-    if(signupLimit.rows[0]!.attempts>20)return error(res,429,'RATE_LIMITED','Too many signup attempts. Try again later.');
+    // A tournament can bring 48 players through one campus network within minutes.
+    if(signupLimit.rows[0]!.attempts>100)return error(res,429,'RATE_LIMITED','Too many signup attempts. Try again later.');
     const parsed=signupSchema.safeParse(req.body);
     if(!parsed.success)return error(res,400,'VALIDATION_FAILED','Enter a display name, valid email and password.');
     const email=parsed.data.email.trim().toLowerCase();
