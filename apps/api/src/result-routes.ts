@@ -8,7 +8,8 @@ import { requireAdmin, requireCsrf } from './auth.js';
 import { projectRows, type Disqualification, type RawResultRow } from './result-projection.js';
 
 const uuid=z.uuid();
-const rowSchema=z.object({registration_id:uuid,placement:z.number().int().min(1).max(100),player_kills:z.array(z.object({roster_entry_id:uuid,kills:z.number().int().min(0).max(10000)}).strict()).min(1).max(8),adjustment:z.string().regex(/^-?(?:0|[1-9]\d{0,5})(?:\.\d{1,3})?$/)}).strict();
+const playerResultSchema=z.object({roster_entry_id:uuid,kills:z.number().int().min(0).max(10000),did_not_play:z.boolean().optional(),dnp_reason:z.string().trim().min(10).max(500).optional()}).strict().superRefine((value,ctx)=>{if(value.did_not_play){if(value.kills!==0)ctx.addIssue({code:'custom',path:['kills'],message:'A player who did not play must have zero kills.'});if(!value.dnp_reason)ctx.addIssue({code:'custom',path:['dnp_reason'],message:'Give a reason for did not play.'});}else if(value.dnp_reason)ctx.addIssue({code:'custom',path:['dnp_reason'],message:'A did-not-play reason requires the did-not-play mark.'});});
+const rowSchema=z.object({registration_id:uuid,placement:z.number().int().min(1).max(100),player_kills:z.array(playerResultSchema).min(1).max(8),adjustment:z.string().regex(/^-?(?:0|[1-9]\d{0,5})(?:\.\d{1,3})?$/)}).strict();
 const draftSchema=z.object({expected_match_version:z.number().int().positive(),evidence_id:uuid,reason:z.string().trim().min(10).max(1000),rows:z.array(rowSchema).min(1).max(100)}).strict();
 const decisionSchema=z.object({expected_match_version:z.number().int().positive()}).strict();
 function fail(res:Response,status:number,code:string,message:string){return res.status(status).json({error:{code,message,correlation_id:res.locals.correlationId}});}
