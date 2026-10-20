@@ -2,7 +2,7 @@ export type OcrDraftSource={
   output:{layout?:{rows:{placement:number;kill_hints:({kills:number;ocr_confidence:number}|null)[]}[]}|null}|null;
   candidates?:{suggestions:{registration_id:string;roster_entry_id:string;placement?:number;slot?:number}[]};
 };
-export type EligibleTeam={id:string;roster:{id:string}[]};
+export type EligibleTeam={id:string;team_name?:string;roster:{id:string}[]};
 
 /** Produce tentative fields only where a visible row identifies one eligible team. */
 export function buildOcrPrefill(source:OcrDraftSource,teams:EligibleTeam[]){
@@ -25,6 +25,22 @@ export function buildOcrPrefill(source:OcrDraftSource,teams:EligibleTeam[]){
     }
   }
   return {placementByTeam,killsByPlayer,visibleRows:candidates.length,matchedTeams:Object.keys(placementByTeam).length,suggestedKills:Object.keys(killsByPlayer).length};
+}
+
+/** Explicit row choices take precedence over tentative name matches. Kills are carried only for unchanged name matches. */
+export function buildReviewedOcrPrefill(prefill:ReturnType<typeof buildOcrPrefill>,reviewed:Record<number,string>,teams:EligibleTeam[]){
+  const validTeams=new Set(teams.map(team=>team.id));
+  const selections=Object.entries(reviewed).map(([rank,id])=>({rank:Number(rank),id})).filter(item=>Number.isInteger(item.rank)&&item.rank>=1&&item.rank<=10&&validTeams.has(item.id));
+  const chosenTeams=new Set(selections.map(item=>item.id));
+  if(chosenTeams.size!==selections.length)return null;
+  const chosenRanks=new Set(selections.map(item=>String(item.rank)));
+  const placementByTeam:Record<string,string>={};
+  for(const [teamId,rank] of Object.entries(prefill.placementByTeam))if(!chosenTeams.has(teamId)&&!chosenRanks.has(rank))placementByTeam[teamId]=rank;
+  for(const item of selections)placementByTeam[item.id]=String(item.rank);
+  const unchanged=new Set(Object.keys(placementByTeam).filter(teamId=>placementByTeam[teamId]===prefill.placementByTeam[teamId]));
+  const killsByPlayer:Record<string,string>={};
+  for(const team of teams.filter(item=>unchanged.has(item.id)))for(const player of team.roster){const hint=prefill.killsByPlayer[player.id];if(hint!==undefined)killsByPlayer[player.id]=hint;}
+  return {placementByTeam,killsByPlayer,visibleRows:prefill.visibleRows,matchedTeams:Object.keys(placementByTeam).length,suggestedKills:Object.keys(killsByPlayer).length};
 }
 
 export function mergeOcrPrefill(currentPlacements:Record<string,string>,currentKills:Record<string,string>,prefill:ReturnType<typeof buildOcrPrefill>,teams:EligibleTeam[]){

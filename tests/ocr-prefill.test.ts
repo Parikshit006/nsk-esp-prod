@@ -1,5 +1,5 @@
 import {expect,it} from 'vitest';
-import {assignHiddenPlacement,buildOcrPrefill,mergeOcrPrefill} from '../apps/web/src/ocr-prefill.js';
+import {assignHiddenPlacement,buildOcrPrefill,buildReviewedOcrPrefill,mergeOcrPrefill} from '../apps/web/src/ocr-prefill.js';
 
 it('only prepares identified visible teams and readable kills; hidden and ambiguous rows stay manual',()=>{
   const teams=Array.from({length:12},(_,index)=>({id:`team-${index+1}`,roster:[{id:`player-${index+1}`}] }));
@@ -35,4 +35,12 @@ it('preserves organizer edits and does not create duplicate placements while imp
   expect(merged).toMatchObject({placements:{'team-a':'2'},kills:{'player-a':'7'},addedTeams:0});
   const fresh=mergeOcrPrefill({}, {},proposal,teams);
   expect(fresh).toMatchObject({placements:{'team-a':'1','team-b':'2'},kills:{'player-a':'4','player-b':'5'},addedTeams:2});
+});
+it('lets the organizer map unclear visible rows without carrying kills from an overridden name match',()=>{
+  const teams=[{id:'team-a',roster:[{id:'player-a'}]},{id:'team-b',roster:[{id:'player-b'}]},{id:'team-c',roster:[{id:'player-c'}]}];
+  const prefill={placementByTeam:{'team-a':'1','team-b':'2'},killsByPlayer:{'player-a':'4','player-b':'5'},visibleRows:10,matchedTeams:2,suggestedKills:2};
+  const reviewed=buildReviewedOcrPrefill(prefill,{1:'team-c',3:'team-a'},teams);
+  expect(reviewed).toMatchObject({placementByTeam:{'team-c':'1','team-b':'2','team-a':'3'},killsByPlayer:{'player-b':'5'},matchedTeams:3,suggestedKills:1});
+  expect(buildReviewedOcrPrefill(prefill,{1:'team-c',3:'team-c'},teams)).toBeNull();
+  expect(buildReviewedOcrPrefill(prefill,{11:'team-c'},teams)?.placementByTeam).toEqual(prefill.placementByTeam);
 });

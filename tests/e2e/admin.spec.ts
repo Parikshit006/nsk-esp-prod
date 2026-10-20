@@ -224,6 +224,11 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByRole('button',{name:'Read screenshot locally'}).click();
   await expect(page.getByRole('heading',{name:'Ten visible placement rows'})).toBeVisible({timeout:90000});
   await expect(page.locator('.ocr-placement-list > li')).toHaveCount(10);
+  await page.getByLabel('Team seen at place 1',{exact:true}).selectOption({label:`Blue Squad ${suffix}`});
+  await page.getByLabel('Team seen at place 2',{exact:true}).selectOption({label:`Red Squad ${suffix}`});
+  await page.getByRole('button',{name:'Use reviewed visible placements in result form'}).click();
+  await expect(page.getByLabel(`Placement for Blue Squad ${suffix}`)).toHaveValue('1');
+  await expect(page.getByLabel(`Placement for Red Squad ${suffix}`)).toHaveValue('2');
   const placementFields=page.getByLabel(/^Placement for /);
   for(let i=0;i<await placementFields.count();i++) await placementFields.nth(i).fill(String(i+1));
   const killFields=page.getByLabel(/^Kills · /);
