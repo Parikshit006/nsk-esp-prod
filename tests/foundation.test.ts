@@ -25,7 +25,7 @@ describe('Configuration and vocabulary',()=>{
     expect(readConfig({...env,GOOGLE_CLIENT_ID:'',GOOGLE_CLIENT_SECRET:''}).GOOGLE_CLIENT_ID).toBeUndefined();
   });
   it('TEST-087 matches every exact label in design §10.3 and rejects unknown states',async()=>{
-    const design=await readFile('design.md','utf8');
+    const design=await readFile('docs/source/design.md','utf8');
     const table=design.split('## 10.3 Status vocabulary (single source)')[1]!.split('## 10.4')[0]!;
     const names={Tournament:'tournament',Registration:'registration',Payment:'payment',Approval:'approval',Slot:'slot',Match:'match','Extraction job (admin)':'job','Identity row':'identity',Result:'result','Room details':'credentials',Dispute:'dispute'} as const;
     const {statuses}=await import('../packages/shared/status.js');

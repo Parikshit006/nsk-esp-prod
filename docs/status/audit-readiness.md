@@ -1,5 +1,7 @@
 # Documentation audit and implementation readiness
 
+This is a historical audit from the project bootstrap. The supplied documents it describes were later moved, unchanged, to [`docs/source/`](../source/) and the visual references to `refs/design/`. Use [delivery progress](progress.md) for the current implementation state.
+
 Audit date: 18 October 2026. Status: source audit complete; application implementation not yet complete.
 
 ## Repository evidence

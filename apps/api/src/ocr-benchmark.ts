@@ -4,11 +4,11 @@ import {recognizeEvidence} from './ocr.js';
 import {ignForms} from './ign.js';
 
 type Label={file:string;placements:{rank:number;players:[string|null,number|null,'visible'|'approximate'|'unknown'|'unreadable'][]}[]};
-const corpus=JSON.parse(await readFile(resolve('refs/result-labels.json'),'utf8')) as {images:Label[]};
+const corpus=JSON.parse(await readFile(resolve('refs/results/result-labels.json'),'utf8')) as {images:Label[]};
 const results=[];
 for(const image of corpus.images){
-  if(basename(image.file)!==image.file)throw new Error('Corpus image must be a filename in refs.');
-  const bytes=await readFile(resolve('refs',image.file));
+  if(basename(image.file)!==image.file)throw new Error('Corpus image must be a filename in refs/results.');
+  const bytes=await readFile(resolve('refs/results',image.file));
   const output=await recognizeEvidence(bytes);
   const lines=output.lines.map(line=>ignForms(line.text).skeleton_key).filter(Boolean);
   const visible=[...new Set(image.placements.flatMap(place=>place.players.filter(([name,,certainty])=>name&&certainty==='visible').map(([name])=>name!)))];
