@@ -26,6 +26,7 @@ import { reopenRouter } from './reopen-routes.js';
 import { organizerRouter } from './organizer-routes.js';
 import { rosterChangeRouter } from './roster-change-routes.js';
 import { idempotencyMiddleware } from './idempotency.js';
+import {evidenceRetentionRouter} from './evidence-retention-routes.js';
 
 export function createApp(config: Config, pool: Pool, log: (entry: object)=>void=()=>{},sendRecovery?:RecoverySender,sendVerification?:RecoverySender) {
   const app=express();
@@ -67,13 +68,14 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
   app.use('/api/v1',scheduleRouter(pool));
   app.use('/api/v1',refundRouter(pool));
   app.use('/api/v1',reopenRouter(pool));
+  app.use('/api/v1',evidenceRetentionRouter(pool));
   app.get('/api/v1/health/ready',async(req,res)=>{
     const supplied=Buffer.from(req.headers.authorization??'');
     const expected=Buffer.from(`Bearer ${config.READINESS_TOKEN}`);
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==27) throw new Error('Schema not ready');
+      if(result.rows[0]?.schema_version!==28) throw new Error('Schema not ready');
       res.json({data:{status:'ready',database:'ready',stage:'development'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });

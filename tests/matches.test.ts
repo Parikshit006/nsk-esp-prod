@@ -89,6 +89,7 @@ it('guards readiness, freezes rules on start and preserves attempts on interrupt
   const ready=await operator.get(`/api/v1/admin/tournaments/${event}/finalization-checklist`);expect(ready.body.data.blockers).toEqual([]);
   expect((await operator.post(`/api/v1/admin/tournaments/${event}/finalize`).set('X-CSRF-Token',csrf).send({expected_version:review.body.data.version,snapshot_id:body.snapshot_id,reason:'Final standings checked and approved.'})).status).toBe(409);
   const final=await operator.post(`/api/v1/admin/tournaments/${event}/finalize`).set('X-CSRF-Token',csrf).send({expected_version:ready.body.data.version,snapshot_id:body.snapshot_id,reason:'Final standings checked and approved.'});expect(final.status).toBe(200);expect(final.body.data.podium.map((item:{team_name:string})=>item.team_name)).toEqual(['Team 2','Team 1']);
+  expect((await pool.query('SELECT evidence_retention_due_at IS NOT NULL AS scheduled FROM tournaments WHERE id=$1',[event])).rows[0].scheduled).toBe(true);
   expect((await request(app).get(`/api/v1/tournaments/${event}/podium`)).body.data.podium[0].team_name).toBe('Team 2');
   expect((await operator.post(`/api/v1/admin/matches/${match}/results`).set('X-CSRF-Token',csrf).send({expected_match_version:15,evidence_id:evidence,reason:'Another correction after completion',rows:rows()})).status).toBe(409);
   const organizerId=await createAdmin(pool,'limited-organizer@example.test','limited-organizer-password');await pool.query("UPDATE accounts SET role='organizer',organizer_activated_at=now() WHERE id=$1",[organizerId]);
@@ -96,6 +97,7 @@ it('guards readiness, freezes rules on start and preserves attempts on interrupt
   const reopening={expected_version:final.body.data.version,reason:'Platform review found the recorded tie order needs correction.'};
   expect((await organizer.post(`/api/v1/admin/tournaments/${event}/reopen`).set('X-CSRF-Token',organizerCsrf).send(reopening)).status).toBe(403);
   const reopened=await operator.post(`/api/v1/admin/tournaments/${event}/reopen`).set('X-CSRF-Token',csrf).send(reopening);expect(reopened.status).toBe(200);
+  expect((await pool.query('SELECT evidence_retention_due_at FROM tournaments WHERE id=$1',[event])).rows[0].evidence_retention_due_at).toBeNull();
   expect((await request(app).get(`/api/v1/tournaments/${event}/podium`)).status).toBe(404);
   expect((await operator.post(`/api/v1/admin/tournaments/${event}/reopen`).set('X-CSRF-Token',csrf).send(reopening)).status).toBe(409);
   const renewed=(await operator.get(`/api/v1/admin/tournaments/${event}/finalization-checklist`)).body.data;expect(renewed.resolutions).toEqual([]);expect(renewed.snapshot.id).not.toBe(body.snapshot_id);

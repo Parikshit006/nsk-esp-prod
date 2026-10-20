@@ -83,7 +83,7 @@ export function adminTournamentRouter(pool:Pool){
         const reports=await client.query<{id:string}>("SELECT id FROM result_disputes WHERE tournament_id=$1 AND status='Open'",[id.data]);
         for(const report of reports.rows){await client.query("UPDATE result_disputes SET status='Rejected',reviewed_by=$1,reviewed_at=now(),response='Event cancelled before this report could be resolved.',version=version+1 WHERE id=$2",[res.locals.admin.id,report.id]);await client.query("INSERT INTO result_dispute_events(id,dispute_id,actor_id,action,detail) VALUES($1,$2,$3,'Rejected',$4)",[randomUUID(),report.id,res.locals.admin.id,JSON.stringify({reason:'Event cancelled'})]);}
       }
-      await client.query('UPDATE tournaments SET status=$1,version=version+1 WHERE id=$2',[next,id.data]);
+      await client.query("UPDATE tournaments SET status=$1,evidence_retention_due_at=CASE WHEN $1='Cancelled' THEN now()+interval '12 months' ELSE evidence_retention_due_at END,version=version+1 WHERE id=$2",[next,id.data]);
       await audit(client,res.locals.admin.id,`tournament.${action}`,id.data,{status:tournament.status},{status:next,reason:parsed.data.reason??null});
       return {id:id.data,status:next,version:tournament.version+1};
     });if(data===null)return fail(res,404,'NOT_FOUND','Tournament not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Tournament changed. Reload and try again.');if(data==='invalid')return fail(res,409,'INVALID_TRANSITION','This action is not available in the current state.');if('blocked' in data)return fail(res,409,'GATE_BLOCKED','Resolve the listed blockers before continuing.',data.blocked);return res.json({data});

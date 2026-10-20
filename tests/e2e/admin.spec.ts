@@ -25,6 +25,12 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await page.getByLabel('Team capacity').fill('12');
   await page.getByRole('button',{name:'Create draft'}).click();
   await expect(page.getByText('Draft tournament created.')).toBeVisible();
+  await page.getByLabel('Reason for the legal hold').fill('Preserve private evidence while the organizer checks an external claim.');
+  await page.getByRole('button',{name:'Place legal hold'}).click();
+  await expect(page.getByText('Legal hold placed. Automatic evidence deletion is paused for this event.')).toBeVisible();
+  await page.getByLabel('Reason to release the legal hold').fill('The external claim was resolved and reviewed.');
+  await page.getByRole('button',{name:'Release legal hold'}).click();
+  await expect(page.getByText('Legal hold released. Expired evidence will be deleted by the daily retention job.')).toBeVisible();
   await page.getByRole('button',{name:'Copy selected template'}).click();
   await expect(page.getByText('A new tournament rule version was created.')).toBeVisible();
   await page.getByRole('button',{name:'Confirm',exact:true}).click();

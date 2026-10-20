@@ -16,7 +16,7 @@ export function evidenceRouter(pool:Pool){
   });
   router.get('/admin/evidence/:id/image',requireAdmin(pool),async(req,res)=>{
     const id=uuid.safeParse(req.params.id);if(!id.success)return fail(res,400,'VALIDATION_FAILED','Invalid evidence ID.');
-    const result=await pool.query<{content:Buffer;mime:string;sha256:string}>('SELECT content,mime,sha256 FROM match_evidence WHERE id=$1',[id.data]);const row=result.rows[0];if(!row)return fail(res,404,'NOT_FOUND','Evidence not found.');
+    const result=await pool.query<{content:Buffer|null;mime:string;sha256:string}>('SELECT content,mime,sha256 FROM match_evidence WHERE id=$1',[id.data]);const row=result.rows[0];if(!row?.content)return fail(res,404,'NOT_FOUND','Evidence image has expired or was not found.');
     res.setHeader('Content-Type',row.mime);res.setHeader('Content-Disposition','inline; filename="match-evidence"');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('ETag',`"${row.sha256}"`);return res.send(row.content);
   });
   router.post('/admin/matches/:id/evidence',requireAdmin(pool),requireCsrf(pool),express.raw({type:['image/png','image/jpeg'],limit:'5mb'}),async(req,res)=>{

@@ -43,8 +43,9 @@ export async function runOcrJob(pool:Pool,recognize=recognizeEvidence){
   const claimed=await pool.query<{id:string;evidence_id:string}>("UPDATE ocr_jobs SET status='Running',attempts=attempts+1,lease_id=$1,lease_until=now()+interval '3 minutes' WHERE id=(SELECT id FROM ocr_jobs WHERE (status='Queued' OR (status='Running' AND lease_until<now())) AND attempts<3 ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,evidence_id",[token]);
   const job=claimed.rows[0];if(!job)return false;
   try{
-    const evidence=await pool.query<{content:Buffer}>('SELECT content FROM match_evidence WHERE id=$1',[job.evidence_id]);
-    const output=await recognize(evidence.rows[0]!.content);
+    const evidence=await pool.query<{content:Buffer|null}>('SELECT content FROM match_evidence WHERE id=$1',[job.evidence_id]);
+    if(!evidence.rows[0]?.content)throw new Error('Evidence image expired.');
+    const output=await recognize(evidence.rows[0].content);
     await pool.query("UPDATE ocr_jobs SET status='Succeeded',output=$1,completed_at=now(),lease_id=NULL,lease_until=NULL WHERE id=$2 AND lease_id=$3",[JSON.stringify(output),job.id,token]);
   }catch{
     await pool.query("UPDATE ocr_jobs SET status=CASE WHEN attempts<3 THEN 'Queued' ELSE 'Failed' END,completed_at=CASE WHEN attempts>=3 THEN now() ELSE NULL END,lease_id=NULL,lease_until=NULL WHERE id=$1 AND lease_id=$2",[job.id,token]);

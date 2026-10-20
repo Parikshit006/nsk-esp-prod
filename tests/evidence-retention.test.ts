@@ -1,0 +1,55 @@
+import {afterAll,beforeAll,expect,it} from 'vitest';
+import request from 'supertest';
+import {Pool} from 'pg';
+import {createApp} from '../apps/api/src/app.js';
+import {createAdmin} from '../apps/api/src/auth.js';
+import {readConfig} from '../apps/api/src/config.js';
+import {migrate} from '../apps/api/src/migrations.js';
+import {previewEvidenceRetention,purgeExpiredEvidence} from '../apps/api/src/evidence-retention.js';
+
+const url=process.env.DATABASE_URL_TEST;
+if(!url||!new URL(url).pathname.endsWith('_test'))throw new Error('DATABASE_URL_TEST must be a separate _test database.');
+const schema=`test_${crypto.randomUUID().replaceAll('-','')}`,admin=new Pool({connectionString:url}),pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});
+const config=readConfig({NODE_ENV:'test',WEB_ORIGIN:'http://localhost:5173',DATABASE_URL:url,READINESS_TOKEN:'test-only-readiness-token-with-32-characters',CREDENTIAL_ENCRYPTION_KEY:'0123456789abcdef'.repeat(4)});
+const app=createApp(config,pool),event=crypto.randomUUID(),team=crypto.randomUUID(),registration=crypto.randomUUID(),match=crypto.randomUUID(),attempt=crypto.randomUUID(),evidence=crypto.randomUUID(),ruleset=crypto.randomUUID(),version=crypto.randomUUID(),dispute=crypto.randomUUID(),proof=crypto.randomUUID(),reportImage=crypto.randomUUID();
+let operator:string;
+beforeAll(async()=>{
+  await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);operator=await createAdmin(pool,'retention-admin@example.test','retention-password-1234');
+  const content=Buffer.from('private screenshot bytes');
+  await pool.query("INSERT INTO tournaments(id,name,capacity,timezone,status,created_by,team_size,fee_minor,currency,evidence_retention_due_at) VALUES($1,'Retention cup',12,'Asia/Kolkata','Completed',$2,1,0,'INR',now()-interval '1 day')",[event,operator]);
+  await pool.query("INSERT INTO tournament_rulesets(id,tournament_id,version_no,config,status,created_by) VALUES($1,$2,1,$3,'Frozen',$4)",[ruleset,event,JSON.stringify({points_per_kill:'1',placement_points:[{rank:1,points:'12'}],kill_cap:null,tie_break_order:['admin_decision'],disqualification_policy:'void_all_results',cancelled_match_policy:'exclude_all_results'}),operator]);
+  await pool.query('INSERT INTO teams(id,captain_id,name) VALUES($1,$2,$3)',[team,operator,'Retention team']);
+  await pool.query("INSERT INTO registrations(id,tournament_id,team_id,name_key,status,payment_status,approval_status,slot_status,eligibility_status) VALUES($1,$2,$3,'retention team','Submitted','Verified','Approved','Assigned','Verified')",[registration,event,team]);
+  const linked=await pool.connect();try{await linked.query('BEGIN');await linked.query("INSERT INTO matches(id,tournament_id,match_no,map,scheduled_at,ends_at,current_attempt_id,status) VALUES($1,$2,1,'Bermuda',now()-interval '2 days',now()-interval '2 days'+interval '1 hour',$3,'Published')",[match,event,attempt]);await linked.query("INSERT INTO match_attempts(id,match_id,attempt_no) VALUES($1,$2,1)",[attempt,match]);await linked.query('COMMIT');}catch(error){await linked.query('ROLLBACK');throw error;}finally{linked.release();}
+  await pool.query('INSERT INTO match_evidence(id,match_id,attempt_id,sha256,mime,width,height,content,uploaded_by) VALUES($1,$2,$3,$4,$5,16,16,$6,$7)',[evidence,match,attempt,'a'.repeat(64),'image/png',content,operator]);
+  await pool.query("INSERT INTO match_result_versions(id,match_id,attempt_id,version_no,ruleset_id,evidence_id,status,source,reason,created_by) VALUES($1,$2,$3,1,$4,$5,'Published','Manual','Checked original screenshot and roster.',$6)",[version,match,attempt,ruleset,evidence,operator]);
+  await pool.query("INSERT INTO result_disputes(id,tournament_id,match_id,registration_id,reported_result_version_id,opened_by,issue) VALUES($1,$2,$3,$4,$5,$6,'Incorrect count in the screenshot.')",[dispute,event,match,registration,version,operator]);
+  await pool.query('INSERT INTO result_dispute_evidence(id,dispute_id,sha256,mime,width,height,content,uploaded_by) VALUES($1,$2,$3,$4,16,16,$5,$6)',[reportImage,dispute,'b'.repeat(64),'image/png',content,operator]);
+  await pool.query("INSERT INTO payment_proofs(id,registration_id,tournament_id,version_no,reference,amount_minor,sha256,mime,width,height,content,status,submitted_by) VALUES($1,$2,$3,1,'REF-123',100,$4,'image/png',16,16,$5,'Verified',$6)",[proof,registration,event,'c'.repeat(64),content,operator]);
+  await pool.query("INSERT INTO refund_reviews(tournament_id,registration_id) VALUES($1,$2)",[event,registration]);
+  await pool.query("INSERT INTO ocr_jobs(id,evidence_id,requested_by,status,attempts,output) VALUES($1,$2,$3,'Succeeded',1,$4)",[crypto.randomUUID(),evidence,operator,JSON.stringify({text:'Private OCR name',lines:[]})]);
+});
+afterAll(async()=>{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+it('waits for reviews and legal holds, then purges image bytes and OCR text once',async()=>{
+  const at=new Date();
+  expect(await previewEvidenceRetention(pool,at)).toEqual([]);
+  await pool.query("UPDATE refund_reviews SET status='Resolved',resolution='Refunded',amount_minor=100,note='Refund settled outside the platform.',reviewed_by=$2,reviewed_at=now() WHERE registration_id=$1",[registration,operator]);
+  expect(await previewEvidenceRetention(pool,at)).toEqual([]);
+  await pool.query("UPDATE result_disputes SET status='Rejected',reviewed_by=$2,reviewed_at=now(),response='The original screenshot was checked against the result.' WHERE id=$1",[dispute,operator]);
+  expect(await previewEvidenceRetention(pool,at)).toEqual([event]);
+  const agent=request.agent(app),csrf=(await agent.post('/api/v1/auth/login').send({email:'retention-admin@example.test',password:'retention-password-1234'})).body.data.csrf_token as string;
+  expect((await agent.post(`/api/v1/admin/tournaments/${event}/evidence-retention`).set('X-CSRF-Token',csrf).send({action:'hold',reason:'Pending external legal review of this event.'})).status).toBe(200);
+  expect(await previewEvidenceRetention(pool,at)).toEqual([]);
+  expect(await purgeExpiredEvidence(pool,at)).toEqual([]);
+  expect((await agent.post(`/api/v1/admin/tournaments/${event}/evidence-retention`).set('X-CSRF-Token',csrf).send({action:'release',reason:'External review is closed; normal retention resumes.'})).status).toBe(200);
+  expect(await purgeExpiredEvidence(pool,at)).toEqual([{tournament_id:event,payment_proofs:1,match_screenshots:1,dispute_screenshots:1,ocr_readings:1}]);
+  expect(await purgeExpiredEvidence(pool,at)).toEqual([]);
+  expect((await pool.query('SELECT content,purged_at,sha256 FROM match_evidence WHERE id=$1',[evidence])).rows[0]).toMatchObject({content:null,sha256:'a'.repeat(64)});
+  expect((await pool.query('SELECT content,purged_at FROM payment_proofs WHERE id=$1',[proof])).rows[0].content).toBeNull();
+  expect((await pool.query('SELECT content FROM result_dispute_evidence WHERE id=$1',[reportImage])).rows[0].content).toBeNull();
+  expect((await pool.query('SELECT output,purged_at FROM ocr_jobs WHERE evidence_id=$1',[evidence])).rows[0].output).toBeNull();
+  expect((await agent.get(`/api/v1/admin/evidence/${evidence}/image`)).status).toBe(404);
+  expect((await agent.get(`/api/v1/disputes/${dispute}/evidence`)).status).toBe(404);
+  expect((await pool.query("SELECT count(*)::int n FROM audit_events WHERE action='evidence.retention_purged' AND entity_id=$1",[event])).rows[0].n).toBe(1);
+  await expect(pool.query("UPDATE match_evidence SET mime='image/jpeg' WHERE id=$1",[evidence])).rejects.toThrow();
+});
