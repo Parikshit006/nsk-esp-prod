@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { readFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';

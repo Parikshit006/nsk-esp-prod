@@ -11,6 +11,17 @@ it('creates ten visible review placements only for the supported two-column scre
   expect(detected?.cropped_or_hidden_placements).toEqual([11,12]);
   expect(await detectResultLayout(await sharp(base).png().toBuffer())).toBeNull();
 });
+it('recognizes the wider results layout with ten review rows and keeps hidden placements manual',async()=>{
+  const base=sharp({create:{width:1600,height:717,channels:3,background:'#11171d'}});
+  const gold=await sharp({create:{width:580,height:270,channels:3,background:'#5a4408'}}).png().toBuffer();
+  const screenshot=await base.composite([{input:gold,left:245,top:155}]).png().toBuffer();
+  // The wider layout is identified using its proportions as well as its row colors.
+  const wider=await sharp(screenshot).resize(1687,861,{fit:'fill'}).png().toBuffer();
+  const detected=await detectResultLayout(wider);
+  expect(detected?.kind).toBe('free-fire-two-column-v2');
+  expect(detected?.rows.map(row=>row.placement)).toEqual([1,2,3,4,5,6,7,8,9,10]);
+  expect(detected?.cropped_or_hidden_placements).toEqual([11,12]);
+});
 it('keeps uncertain kills blank and never suggests first-place kills from the gold banner',()=>{
   const row={placement:2,side:'left' as const,left:400,top:275,width:440,height:68,ocr_lines:[
     {text:'2 Eliminations',confidence:92,box:{x0:500,y0:60,x1:800,y1:110}},

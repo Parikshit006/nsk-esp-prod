@@ -15,5 +15,5 @@ export function SocialSignIn({role,returnTo}:{role:'captain'|'member';returnTo:'
 export function OAuthNotice(){
   const status=new URLSearchParams(window.location.search).get('oauth');
   if(!status)return null;
-  return <p role="status" className={status==='failed'?'notice error':'notice success'}>{status==='failed'?'Provider sign-in could not be completed. If this email already has an account, sign in with your password and connect the provider under Account security.':status==='linked'?'Provider connected to this account.':'Provider sign-in completed.'}</p>;
+  return <p role="status" className={status==='failed'?'notice error':'notice success'}>{status==='failed'?'Provider sign-in could not be completed. If this email already has an account, sign in with its existing method (including Google) and connect the provider under Account security. Check that the provider account has a verified email.':status==='linked'?'Provider connected to this account.':'Provider sign-in completed.'}</p>;
 }

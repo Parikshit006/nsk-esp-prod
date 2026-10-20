@@ -22,6 +22,10 @@ describe('Captain registration and roster gates',()=>{
     const agent=request.agent(app);const login=await agent.post('/api/v1/auth/login').send({email:'captain@example.test',password:'captain-password-1234'});expect(login.status).toBe(200);const csrf=login.body.data.csrf_token as string;
     expect((await agent.get('/api/v1/admin/tournaments')).status).toBe(403);
     const post=(path:string,body:object)=>agent.post(path).set('X-CSRF-Token',csrf).send(body);
+    expect((await agent.get('/api/v1/me/game-profile')).body.data).toBeNull();
+    expect((await agent.put('/api/v1/me/game-profile').send({ign_raw:'Exact ぬ IGN',game_uid:'12345'})).status).toBe(403);
+    const profile=await agent.put('/api/v1/me/game-profile').set('X-CSRF-Token',csrf).send({ign_raw:'Exact ぬ IGN',game_uid:'12345'});expect(profile.status).toBe(200);
+    expect((await agent.get('/api/v1/me/game-profile')).body.data).toMatchObject({ign_raw:'Exact ぬ IGN',game_uid:'12345'});
     expect((await agent.post('/api/v1/teams').send({name:'Blue Squad'})).status).toBe(403);
     const team=await post('/api/v1/teams',{name:'Blue Squad'});expect(team.status).toBe(201);
     const registration=await post(`/api/v1/tournaments/${eventId}/registrations`,{team_id:team.body.data.id});expect(registration.status).toBe(201);expect(registration.body.data).toMatchObject({payment_status:'NotRequired',approval_status:'Unreviewed',slot_status:'Unassigned'});
@@ -30,8 +34,12 @@ describe('Captain registration and roster gates',()=>{
     const captain=await post(`/api/v1/registrations/${rid}/roster`,{expected_version:1,display_name:'Captain One',ign_raw:'Exact ぬ IGN',ign_exact:true,game_uid:'12345',role:'Captain',self:true});expect(captain.status).toBe(201);
     const duplicate=await post(`/api/v1/registrations/${rid}/roster`,{expected_version:2,display_name:'Other',ign_raw:'exact ぬ ign',ign_exact:true,game_uid:null,role:'Player',self:false});expect(duplicate.status).toBe(409);expect(duplicate.body.error.code).toBe('DUPLICATE');
     const player=await post(`/api/v1/registrations/${rid}/roster`,{expected_version:2,display_name:'Player Two',ign_raw:'PlayerTwo',ign_exact:false,game_uid:null,role:'Player',self:false});expect(player.status).toBe(201);
-    const other=request.agent(app);await other.post('/api/v1/auth/register').send({display_name:'Other Captain',email:'other@example.test',password:'other-password-1234'});await other.post('/api/v1/auth/login').send({email:'other@example.test',password:'other-password-1234'});
+    const other=request.agent(app);await other.post('/api/v1/auth/register').send({display_name:'Other Captain',email:'other@example.test',password:'other-password-1234'});const otherLogin=await other.post('/api/v1/auth/login').send({email:'other@example.test',password:'other-password-1234'});
     expect((await other.get(`/api/v1/registrations/${rid}`)).status).toBe(404);
+    const invitation=await post(`/api/v1/registrations/${rid}/roster/${player.body.data.id}/invitations`,{email:'other@example.test'});expect(invitation.status).toBe(201);
+    const token=new URL(invitation.body.data.invite_url).hash.slice(1);
+    const accepted=await other.post('/api/v1/invitations/accept').set('X-CSRF-Token',otherLogin.body.data.csrf_token).send({token});expect(accepted.status).toBe(200);
+    expect((await agent.get(`/api/v1/registrations/${rid}`)).body.data.roster.find((entry:{id:string})=>entry.id===player.body.data.id).account_id).toBeTruthy();
     const submitted=await post(`/api/v1/registrations/${rid}/submit`,{expected_version:3,eligibility_note:'Both players are eligible college participants.'});expect(submitted.status).toBe(200);expect(submitted.body.data.status).toBe('Submitted');
     const detail=await agent.get(`/api/v1/registrations/${rid}`);expect(detail.body.data.roster.map((entry:{ign_raw:string})=>entry.ign_raw)).toContain('Exact ぬ IGN');
     expect((await post(`/api/v1/registrations/${rid}/roster`,{expected_version:4,display_name:'Late',ign_raw:'Late',ign_exact:true,game_uid:null,role:'Player',self:false})).status).toBe(409);
@@ -47,11 +55,13 @@ describe('Captain registration and roster gates',()=>{
     const confirmed=await adminPost(`/api/v1/admin/roster-entries/${player.body.data.id}/confirm-ign`,{expected_version:5,note:'Checked exact spelling against organizer supplied evidence.'});expect(confirmed.status).toBe(200);
     const approval=await adminPost(`/api/v1/admin/registrations/${rid}/decision`,{expected_version:6,decision:'approve'});expect(approval.status).toBe(200);expect(approval.body.data.approval_status).toBe('Approved');
     const assigned=await operator.put(`/api/v1/admin/tournaments/${eventId}/slots/1`).set('X-CSRF-Token',adminCsrf).send({expected_version:7,registration_id:rid});expect(assigned.status).toBe(201);
+    const publicAssigned=await request(app).get(`/api/v1/tournaments/${eventId}`);expect(publicAssigned.body.data.assigned_slots).toBe(1);
     const final=await agent.get(`/api/v1/registrations/${rid}`);expect(final.body.data).toMatchObject({payment_status:'NotRequired',approval_status:'Approved',slot_status:'Assigned'});
     const scheduled=crypto.randomUUID(),attempt=crypto.randomUUID();const setup=await pool.connect();try{await setup.query('BEGIN');await setup.query("INSERT INTO matches(id,tournament_id,match_no,map,scheduled_at,ends_at,current_attempt_id) VALUES($1,$2,1,'Bermuda',now()+interval '2 hours',now()+interval '3 hours',$3)",[scheduled,eventId,attempt]);await setup.query('INSERT INTO match_attempts(id,match_id,attempt_no) VALUES($1,$2,1)',[attempt,scheduled]);await setup.query('COMMIT');}finally{setup.release();}
     expect((await post(`/api/v1/registrations/${rid}/withdraw`,{expected_version:7,reason:'Captain is withdrawing before the event begins.'})).status).toBe(409);
     const withdrawn=await post(`/api/v1/registrations/${rid}/withdraw`,{expected_version:8,reason:'Captain is withdrawing before the event begins.'});expect(withdrawn.status).toBe(200);expect(withdrawn.body.data).toMatchObject({status:'Withdrawn',slot_status:'Released',version:9});
     expect((await operator.get(`/api/v1/admin/tournaments/${eventId}/slots`)).body.data).toHaveLength(0);
+    const publicReleased=await request(app).get(`/api/v1/tournaments/${eventId}`);expect(publicReleased.body.data.assigned_slots).toBe(0);
     expect((await agent.get(`/api/v1/registrations/${rid}`)).body.data.roster).toHaveLength(0);
     expect((await post(`/api/v1/registrations/${rid}/withdraw`,{expected_version:9,reason:'Attempting to withdraw twice after release.'})).status).toBe(409);
     const replacement=await post(`/api/v1/tournaments/${eventId}/registrations`,{team_id:team.body.data.id});expect(replacement.status).toBe(201);

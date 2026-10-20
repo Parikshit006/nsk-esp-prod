@@ -84,17 +84,17 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await expect(page.getByRole('heading',{name:'Create your team'})).toBeVisible();
   await page.getByLabel('Team name').fill(`Blue Squad ${suffix}`);
   await page.getByRole('button',{name:'Create team'}).click();
-  await page.getByLabel('Tournament').selectOption({label:`October cup ${suffix} · 4 players`});
+  await page.getByLabel('Tournament').selectOption({value:(await page.getByLabel('Tournament').locator('option').filter({hasText:`October cup ${suffix}`}).getAttribute('value'))!});
   await page.getByRole('button',{name:'Start registration'}).click();
   await expect(page.getByText('Registration draft created.')).toBeVisible();
   await page.getByLabel('Player name').fill(`Captain ${suffix}`);
-  await page.getByLabel('Exact in-game name').fill(`CAP${suffix}`);
+  await page.getByLabel('Exact in-game name',{exact:true}).fill(`CAP${suffix}`);
   await page.getByLabel('I copied the in-game spelling exactly.').check();
   await page.getByRole('button',{name:'Add player'}).click();
   await expect(page.getByText('Player added to the roster.')).toBeVisible();
   for(let n=2;n<=4;n++){
     await page.getByLabel('Player name').fill(`Player ${n}`);
-    await page.getByLabel('Exact in-game name').fill(`P${n}${suffix}`);
+    await page.getByLabel('Exact in-game name',{exact:true}).fill(`P${n}${suffix}`);
     await page.getByRole('button',{name:'Add player'}).click();
     await expect(page.getByText('Player added to the roster.')).toBeVisible();
   }
@@ -181,12 +181,12 @@ test('admin saves reusable rules, copies them to a tournament, confirms and prev
   await expect(page.getByRole('heading',{name:'Create your team'})).toBeVisible();
   await page.getByLabel('Team name').fill(`Red Squad ${suffix}`);
   await page.getByRole('button',{name:'Create team'}).click();
-  await page.getByLabel('Tournament').selectOption({label:`October cup ${suffix} · 4 players`});
+  await page.getByLabel('Tournament').selectOption({value:(await page.getByLabel('Tournament').locator('option').filter({hasText:`October cup ${suffix}`}).getAttribute('value'))!});
   await page.getByRole('button',{name:'Start registration'}).click();
   await expect(page.getByText('Registration draft created.')).toBeVisible();
   for(let n=1;n<=4;n++){
     await page.getByLabel('Player name').fill(`Red player ${n}`);
-    await page.getByLabel('Exact in-game name').fill(`RED${n}${suffix}`);
+    await page.getByLabel('Exact in-game name',{exact:true}).fill(`RED${n}${suffix}`);
     if(n===1)await page.getByLabel('I copied the in-game spelling exactly.').check();
     await page.getByRole('button',{name:'Add player'}).click();
     await expect(page.getByText('Player added to the roster.')).toBeVisible();
