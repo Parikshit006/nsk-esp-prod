@@ -13,12 +13,17 @@ const configSchema = z.object({
   SMTP_USER:z.string().min(1).optional(),
   SMTP_PASSWORD:z.string().min(1).optional(),
   SMTP_FROM:z.email().optional(),
-  SMTP_SECURE:z.enum(['true','false']).default('false')
+  SMTP_SECURE:z.enum(['true','false']).default('false'),
+  GOOGLE_CLIENT_ID:z.preprocess(value=>value===''?undefined:value,z.string().min(1).optional()),
+  GOOGLE_CLIENT_SECRET:z.preprocess(value=>value===''?undefined:value,z.string().min(1).optional()),
+  DISCORD_CLIENT_ID:z.preprocess(value=>value===''?undefined:value,z.string().min(1).optional()),
+  DISCORD_CLIENT_SECRET:z.preprocess(value=>value===''?undefined:value,z.string().min(1).optional())
 }).superRefine((v,ctx)=>{
   if(v.NODE_ENV==='production' && !v.WEB_ORIGIN.startsWith('https://')) ctx.addIssue({code:'custom',path:['WEB_ORIGIN'],message:'HTTPS required'});
   if(v.NODE_ENV==='production' && !v.CREDENTIAL_ENCRYPTION_KEY) ctx.addIssue({code:'custom',path:['CREDENTIAL_ENCRYPTION_KEY'],message:'Required in production'});
   if(v.CREDENTIAL_ENCRYPTION_KEY_PREVIOUS&&v.CREDENTIAL_ENCRYPTION_KEY_PREVIOUS.toLowerCase()===v.CREDENTIAL_ENCRYPTION_KEY?.toLowerCase())ctx.addIssue({code:'custom',path:['CREDENTIAL_ENCRYPTION_KEY_PREVIOUS'],message:'Previous key must differ'});
   if(v.NODE_ENV==='production' && (!v.SMTP_HOST||!v.SMTP_USER||!v.SMTP_PASSWORD||!v.SMTP_FROM)) ctx.addIssue({code:'custom',path:['SMTP_HOST'],message:'SMTP settings are required in production'});
+  for(const provider of ['GOOGLE','DISCORD'] as const)if(Boolean(v[`${provider}_CLIENT_ID`])!==Boolean(v[`${provider}_CLIENT_SECRET`]))ctx.addIssue({code:'custom',path:[`${provider}_CLIENT_ID`],message:'OAuth client ID and secret must be set together'});
 });
 export type Config = z.infer<typeof configSchema>;
 export function readConfig(env: NodeJS.ProcessEnv): Config {

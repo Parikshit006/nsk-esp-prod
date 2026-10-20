@@ -2,11 +2,11 @@
 
 Evidence-first college Free Fire MAX tournament platform. **Current delivery: audited specifications, tournament publication, reusable scoring rules, free and paid-event registration, organizer review and slots, protected room details, manual evidence-backed results, configurable disqualification, result reports, public standings and final podium. This is not yet launch-ready.** Local OCR review assistance, an isolated recovery drill, controlled podium reopening, account recovery and organizer invitations are implemented; broader OCR validation, operational controls and hosting remain unfinished.
 
-Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/decision-log.md), [delivery progress](docs/progress.md), [implemented API contracts](docs/api-contracts.md), and the [provisional self-hosting plan](docs/self-hosting.md). Original specifications are preserved at the repository root.
+Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/decision-log.md), [delivery progress](docs/progress.md), [implemented API contracts](docs/api-contracts.md), and the [provisional AWS server plan](docs/self-hosting.md). Original specifications are preserved at the repository root.
 
 ## Local development
 
-Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN, a random READINESS_TOKEN of at least 32 characters, and a random 32-byte hexadecimal CREDENTIAL_ENCRYPTION_KEY. Configure SMTP to test email verification, recovery and organizer invitations locally; SMTP settings are required in production. Local signups without SMTP are automatically verified for development. Keep the credential key backed up securely: losing it makes saved room details unreadable. A maintenance-window rotation procedure is documented in `docs/self-hosting.md`. Never commit `.env`.
+Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN, a random READINESS_TOKEN of at least 32 characters, and a random 32-byte hexadecimal CREDENTIAL_ENCRYPTION_KEY. Configure SMTP to test email verification, recovery and organizer invitations locally; SMTP settings are required in production. Local signups without SMTP are automatically verified for development. Google and Discord OAuth are optional until their application credentials and exact callback URLs are configured; see `docs/self-hosting.md`. Keep the credential key backed up securely: losing it makes saved room details unreadable. A maintenance-window rotation procedure is documented in `docs/self-hosting.md`. Never commit `.env`.
 
 ```sh
 pnpm install --frozen-lockfile

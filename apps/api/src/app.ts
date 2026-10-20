@@ -6,6 +6,7 @@ import type { Pool } from 'pg';
 import type { Config } from './config.js';
 import { publicConfigSchema } from '../../../packages/shared/contracts.js';
 import { authRouter } from './auth.js';
+import {oauthRouter} from './oauth-routes.js';
 import type { RecoverySender } from './mail.js';
 import { rulesRouter } from './rules-routes.js';
 import { adminTournamentRouter, publicTournamentRouter } from './tournament-routes.js';
@@ -49,6 +50,7 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
   app.get('/api/v1/health/live',(_req,res)=>res.json({data:{status:'alive'}}));
   app.get('/api/v1/meta/config',(_req,res)=>res.json({data:publicConfigSchema.parse({timezone:'Asia/Kolkata',uploads_enabled:true,registration_enabled:true,stage:'development'})}));
   app.use('/api/v1/auth',authRouter(config,pool,sendRecovery,sendVerification));
+  app.use('/api/v1/auth/oauth',oauthRouter(config,pool));
   app.use('/api/v1/admin',organizerRouter(config,pool,sendRecovery));
   app.use('/api/v1',rosterChangeRouter(pool));
   app.use('/api/v1/admin',rulesRouter(pool));
@@ -75,7 +77,7 @@ export function createApp(config: Config, pool: Pool, log: (entry: object)=>void
     if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) { res.status(401).json(failure('UNAUTHENTICATED','Operator authentication is required.',res.locals.correlationId)); return; }
     try {
       const result=await pool.query('SELECT schema_version FROM platform_metadata WHERE singleton=true');
-      if(result.rows[0]?.schema_version!==28) throw new Error('Schema not ready');
+      if(result.rows[0]?.schema_version!==29) throw new Error('Schema not ready');
       res.json({data:{status:'ready',database:'ready',stage:'development'}});
     } catch { res.status(503).json(failure('PROVIDER_UNAVAILABLE','The database is not ready. Check migrations and connectivity.',res.locals.correlationId)); }
   });

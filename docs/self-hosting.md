@@ -9,6 +9,17 @@ The organizer chose an AWS-hosted server, using the existing self-hosted applica
 - Use a unique high-entropy database password, readiness token, and 32-byte room-credential encryption key. Keep them outside Git in a root-readable environment file or secrets service. Back up the encryption key separately; losing it makes room details unreadable. Rotate compromised credentials and revoke sessions as part of an incident response.
 - Deploy with `docker compose up --build -d` only after setting `POSTGRES_PASSWORD`, HTTPS `WEB_ORIGIN`, `READINESS_TOKEN`, `CREDENTIAL_ENCRYPTION_KEY`, and SMTP host, port, user, password and sender address. If using Amazon SES SMTP, use its [region-specific SMTP credentials](https://docs.aws.amazon.com/ses/latest/dg/smtp-credentials.html) and a verified sender; these credentials differ from AWS access keys. Configure TLS for the chosen SMTP port and test signup verification, organizer invitations and password recovery on staging. The app image runs forward-only, checksum-protected migrations before starting. Review each migration and take a recoverable backup before an upgrade.
 
+## Google and Discord sign-in
+
+Create one web OAuth application with Google and one with Discord. Register these exact HTTPS callback URLs using the final public origin:
+
+- `https://YOUR_DOMAIN/api/v1/auth/oauth/google/callback`
+- `https://YOUR_DOMAIN/api/v1/auth/oauth/discord/callback`
+
+Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, plus `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, in the protected server environment. Each pair enables its provider's sign-in and account-connection buttons. Keep secrets out of Git and screenshots; rotate them if exposed. The browser authorization-code flow uses state, a browser-bound nonce, PKCE and a ten-minute one-use request. The server requests only identity and email scopes, requires a verified provider email, and stores the provider's stable subject rather than access or refresh tokens. Existing accounts, including organizers, must sign in with their password once and connect each provider from Account security; a matching email alone never links an account. New social sign-ins can create captain or member accounts, but cannot create administrators. Password recovery can set a password for a social-created account through its verified email.
+
+The [Google OpenID Connect guide](https://developers.google.com/identity/openid-connect/openid-connect) and [Discord OAuth2 guide](https://docs.discord.com/developers/topics/oauth2) describe the provider-side applications and authorization-code flow. Before live launch, test each provider's sign-in, account link, logout, disabled-account denial and email delivery against a staging domain. Local automated tests use simulated providers and do not verify the real provider applications.
+
 ## Backups and recovery
 
 Local infrastructure status (20 October 2026): the organizer has not provisioned the AWS server. Region, OS, domain and access will be supplied later. Development and deployment preparation continue locally. Compose now includes process reaping, restart policies, an authenticated readiness check, a read-only app filesystem, a bounded temporary directory and a 120-second shutdown allowance for screenshot work. The Docker engine remains unavailable locally, so these container settings still require runtime validation.
@@ -47,6 +58,7 @@ This selected period is not a statutory retention determination. India's [Digita
 
 - Provision the AWS account resources and choose a region, instance size, supported Linux image, encrypted EBS volume and backup destination. Keep PostgreSQL and the app's loopback ports closed to the public; expose only the reverse proxy over HTTPS.
 - Confirm the public domain, TLS certificate renewal, DNS, firewall, and monitoring/alert destination.
+- Register the Google and Discord applications and callback URLs, install their client credentials, and perform live-provider staging sign-in and account-link checks.
 - Run the full automated checks and the production container against a staging database; confirm migrations, authenticated readiness, login, payment proof, result upload, room release, public standings, and restore drill.
 - Set a backup recovery target and a support contact. Publish the actual privacy notice, dispute window, payment/refund terms, and evidence-retention policy chosen by the organizer.
 - Repeat capacity and performance checks on the eventual server under expected team, screenshot and spectator load. The local check does not establish a supported server load or uptime claim.

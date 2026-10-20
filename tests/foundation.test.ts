@@ -21,6 +21,8 @@ describe('Configuration and vocabulary',()=>{
     expect(()=>readConfig({...env,NODE_ENV:'production'})).toThrow('WEB_ORIGIN');
     expect(()=>readConfig({...env,WEB_ORIGIN:'http://localhost:5173/path'})).toThrow();
     expect(()=>readConfig({...env,DATABASE_URL:'https://example.com'})).toThrow();
+    expect(()=>readConfig({...env,GOOGLE_CLIENT_ID:'client-without-secret'})).toThrow('GOOGLE_CLIENT_ID');
+    expect(readConfig({...env,GOOGLE_CLIENT_ID:'',GOOGLE_CLIENT_SECRET:''}).GOOGLE_CLIENT_ID).toBeUndefined();
   });
   it('TEST-087 matches every exact label in design §10.3 and rejects unknown states',async()=>{
     const design=await readFile('design.md','utf8');
@@ -50,10 +52,10 @@ describe('Real database and API',()=>{
   it('TEST-094 migrations run from empty, are repeatable and reject applied edits',async()=>{
     await migrate(pool);
     const result=await pool.query('SELECT * FROM schema_migrations');
-    expect(result.rowCount).toBe(28);
+    expect(result.rowCount).toBe(29);
     const dir=await mkdtemp(join(tmpdir(),'esp-migration-'));
     try {await writeFile(join(dir,'0001_foundation.sql'),'SELECT 1;');await expect(migrate(pool,dir)).rejects.toThrow('Applied migration changed');} finally {await rm(dir,{recursive:true});}
-    const data=await pool.query('SELECT schema_version FROM platform_metadata');expect(data.rows).toEqual([{schema_version:28}]);
+    const data=await pool.query('SELECT schema_version FROM platform_metadata');expect(data.rows).toEqual([{schema_version:29}]);
   });
   it('TEST-090 readiness is authenticated and verifies migrated database',async()=>{
     const app=createApp(readConfig(env),pool);
