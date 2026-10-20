@@ -2,6 +2,8 @@
 
 20 October 2026. This checklist distinguishes verified code from the remaining specification; it does not declare launch readiness.
 
+The local public UI now exposes tournament discovery, player sign-in and organizer entry directly. Published events have status filters; event details retain schedule, fees, rules and standings. Organizer tools are grouped with jump navigation in workflow order, and the player portal links to team, registration, roster and match access. The styling draws on the reference site's clear event discovery and competitive typography without copying its content or adding unsupported payouts or statistics. The existing desktop/mobile browser workflow and accessibility checks are the local acceptance gate for these changes.
+
 | Area | Current state | Evidence / remaining work |
 |---|---|---|
 | Documentation audit | Complete | Every supplied Markdown source and requirements CSV reviewed; see `audit-readiness.md`. |

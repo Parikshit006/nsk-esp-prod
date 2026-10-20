@@ -1,6 +1,6 @@
-# Tournament operations
+# NSK Esports tournament operations
 
-Evidence-first college Free Fire MAX tournament platform. **Current delivery: audited specifications, tournament publication, reusable scoring rules, free and paid-event registration, organizer review and slots, protected room details, manual evidence-backed results, configurable disqualification, result reports, public standings and final podium. This is not yet launch-ready.** Local OCR review assistance, an isolated recovery drill, controlled podium reopening, account recovery and organizer invitations are implemented; broader OCR validation, operational controls and hosting remain unfinished.
+Evidence-first college Free Fire MAX tournament platform. The local MVP covers tournament publication, reusable scoring rules, free and paid-event registration, organizer review and slots, protected room details, manual evidence-backed results, OCR-assisted review of ten visible placements, manual entry for placements 11 and 12, configurable disqualification, result reports, public standings and final podium. The public site now has direct tournament, player and organizer navigation; the organizer workspace has task sections. **This is a working local MVP, not a production launch claim.** AWS hosting and real-server operations remain later phases.
 
 Start with the [documentation index](docs/README.md). The original specifications and traceability CSV are preserved in `docs/source/`; maintained implementation notes, status reports, and operations guides have separate folders.
 
@@ -16,7 +16,7 @@ pnpm dev
 pnpm dev:web
 ```
 
-Open http://127.0.0.1:5173. The Vite server proxies `/api` to port 3000. Use the same origin in `WEB_ORIGIN`. The public page fetches real safe configuration and displays retryable failure states; no mock tournament data is presented as real.
+Open http://127.0.0.1:5173. The Vite server proxies `/api` to port 3000. Use the same origin in `WEB_ORIGIN`. The public page fetches real safe configuration and displays retryable failure states; no mock tournament data is presented as real. Tournaments appear only after an organizer publishes them. The player portal is `/participate`; an invited roster member uses the captain's `/join` link; organizers use `/admin`.
 
 To use the admin workspace, create the first super-admin after migration using `pnpm admin:create admin@example.com`. The command prompts for a password without echoing it. Then open http://127.0.0.1:5173/admin. An admin can save and reuse scoring templates, create and publish a tournament after configuration checks, open its registration window, review submitted teams, verify eligibility and unclear in-game names, approve a team, and assign a slot. The suggested scoring values in the editor become official only when the admin confirms that tournament's rule version. Template revisions cannot alter rules already copied into tournaments.
 
