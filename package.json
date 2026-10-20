@@ -18,6 +18,7 @@
     "db:migrate": "tsx apps/api/src/migrate-cli.ts",
     "ops:recovery-drill": "tsx apps/api/src/recovery-drill.ts",
     "ops:ocr-benchmark": "tsx apps/api/src/ocr-benchmark.ts",
+    "ops:rotate-room-key": "tsx apps/api/src/rotate-credential-key-cli.ts",
     "admin:create": "tsx apps/api/src/create-admin.ts"
   },
   "dependencies": {

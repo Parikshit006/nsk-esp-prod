@@ -6,7 +6,7 @@ Read [audit and readiness](docs/audit-readiness.md), [working decisions](docs/de
 
 ## Local development
 
-Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN, a random READINESS_TOKEN of at least 32 characters, and a random 32-byte hexadecimal CREDENTIAL_ENCRYPTION_KEY. Configure SMTP to test email verification, recovery and organizer invitations locally; SMTP settings are required in production. Local signups without SMTP are automatically verified for development. Keep the credential key backed up securely: losing it makes saved room details unreadable. Never commit `.env`.
+Use Node 24.22.0 and pnpm 12.8.1. PostgreSQL 17 is required. Copy `.env.example` to `.env`; configure DATABASE_URL, WEB_ORIGIN, a random READINESS_TOKEN of at least 32 characters, and a random 32-byte hexadecimal CREDENTIAL_ENCRYPTION_KEY. Configure SMTP to test email verification, recovery and organizer invitations locally; SMTP settings are required in production. Local signups without SMTP are automatically verified for development. Keep the credential key backed up securely: losing it makes saved room details unreadable. A maintenance-window rotation procedure is documented in `docs/self-hosting.md`. Never commit `.env`.
 
 ```sh
 pnpm install --frozen-lockfile

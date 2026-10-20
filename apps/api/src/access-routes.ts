@@ -1,10 +1,11 @@
 import { notifyTournament } from './notification-routes.js';
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Router, type Response } from 'express';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import type { Config } from './config.js';
 import { requireAccount, requireAdmin, requireCsrf } from './auth.js';
+import {decryptWithFallback,encryptRoom} from './credential-crypto.js';
 
 const uuid=z.uuid(),version=z.number().int().positive();
 const inviteSchema=z.object({email:z.email().max(254)}).strict();
@@ -15,8 +16,6 @@ function fail(res:Response,status:number,code:string,message:string,data?:unknow
 async function tx<T>(pool:Pool,run:(client:PoolClient)=>Promise<T>){const client=await pool.connect();try{await client.query('BEGIN');const value=await run(client);await client.query('COMMIT');return value;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
 async function audit(client:PoolClient,actor:string,action:string,type:string,id:string,after:unknown){await client.query('INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor,action,type,id,after===null?null:JSON.stringify(after)]);if(action==='credential.set'){const room=await client.query('SELECT m.tournament_id,c.release_at FROM match_credentials c JOIN matches m ON m.id=c.match_id WHERE c.id=$1',[id]);if(room.rows[0])await notifyTournament(client,room.rows[0].tournament_id,'Room details updated','Room details are set or changed. Check your protected match access for the release time.');}}
 function secretKey(config:Config){return config.CREDENTIAL_ENCRYPTION_KEY?Buffer.from(config.CREDENTIAL_ENCRYPTION_KEY,'hex'):null;}
-function encrypt(key:Buffer,value:{room_id:string;password:string}){const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);const ciphertext=Buffer.concat([cipher.update(JSON.stringify(value),'utf8'),cipher.final()]);return {iv,ciphertext,tag:cipher.getAuthTag()};}
-function decrypt(key:Buffer,value:{iv:Buffer;ciphertext:Buffer;auth_tag:Buffer}){const decipher=createDecipheriv('aes-256-gcm',key,value.iv);decipher.setAuthTag(value.auth_tag);return JSON.parse(Buffer.concat([decipher.update(value.ciphertext),decipher.final()]).toString('utf8')) as {room_id:string;password:string};}
 export function accessRouter(config:Config,pool:Pool){
   const router=Router();
   router.post('/registrations/:id/roster/:entry/invitations',requireAccount(pool),requireCsrf(pool),async(req,res)=>{
@@ -55,7 +54,7 @@ export function accessRouter(config:Config,pool:Pool){
       const match=await client.query<{version:number;status:string}>('SELECT version,status FROM matches WHERE id=$1 FOR UPDATE',[id.data]);if(!match.rows[0])return null;if(match.rows[0].version!==body.data.expected_version)return 'stale' as const;if(match.rows[0].status==='Cancelled')return 'cancelled' as const;
       const current=await client.query<{version_no:number}>('SELECT version_no FROM match_credentials WHERE match_id=$1 ORDER BY version_no DESC LIMIT 1',[id.data]);const credentialVersion=(current.rows[0]?.version_no??0)+1;
       await client.query("UPDATE match_credentials SET status='Superseded' WHERE match_id=$1 AND status='Set'",[id.data]);
-      const encrypted=encrypt(key,{room_id:body.data.room_id,password:body.data.password});const credentialId=randomUUID();await client.query('INSERT INTO match_credentials(id,match_id,version_no,iv,ciphertext,auth_tag,release_at,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[credentialId,id.data,credentialVersion,encrypted.iv,encrypted.ciphertext,encrypted.tag,body.data.release_at,'Set',res.locals.admin.id]);
+      const encrypted=encryptRoom(key,{room_id:body.data.room_id,password:body.data.password});const credentialId=randomUUID();await client.query('INSERT INTO match_credentials(id,match_id,version_no,iv,ciphertext,auth_tag,release_at,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[credentialId,id.data,credentialVersion,encrypted.iv,encrypted.ciphertext,encrypted.auth_tag,body.data.release_at,'Set',res.locals.admin.id]);
       await client.query('UPDATE matches SET version=version+1 WHERE id=$1',[id.data]);await audit(client,res.locals.admin.id,'credential.set','match_credential',credentialId,{match_id:id.data,version_no:credentialVersion,release_at:body.data.release_at});return {id:credentialId,match_id:id.data,version_no:credentialVersion,release_at:body.data.release_at,match_version:body.data.expected_version+1};
     });if(data===null)return fail(res,404,'NOT_FOUND','Match not found.');if(data==='stale')return fail(res,409,'STALE_VERSION','Match changed. Reload and try again.');if(data==='cancelled')return fail(res,409,'INVALID_TRANSITION','Cancelled matches cannot receive credentials.');return res.status(201).json({data});
   });
@@ -66,7 +65,8 @@ export function accessRouter(config:Config,pool:Pool){
       const match=await client.query<{tournament_id:string;status:string;tournament_status:string}>('SELECT m.tournament_id,m.status,t.status tournament_status FROM matches m JOIN tournaments t ON t.id=m.tournament_id WHERE m.id=$1',[id.data]);if(!match.rows[0])return fail(res,404,'NOT_FOUND','Match not found.');if(match.rows[0].status==='Cancelled'||match.rows[0].tournament_status==='Cancelled')return fail(res,409,'NOT_ELIGIBLE','Match is cancelled.');
       const eligible=await client.query("SELECT 1 FROM roster_entries e JOIN registrations r ON r.id=e.registration_id JOIN slots s ON s.registration_id=r.id AND s.status='Assigned' WHERE e.account_id=$1 AND e.tournament_id=$2 AND e.status='Active' AND r.approval_status='Approved' AND r.slot_status='Assigned' AND r.status='Submitted' AND r.payment_status IN ('NotRequired','Verified','Waived') AND NOT r.payment_recheck_required LIMIT 1",[res.locals.admin.id,match.rows[0].tournament_id]);if(!eligible.rowCount)return fail(res,403,'NOT_ELIGIBLE','Room details are for approved, slotted roster members.');
       const credential=await client.query<{id:string;version_no:number;iv:Buffer;ciphertext:Buffer;auth_tag:Buffer;release_at:Date}>("SELECT id,version_no,iv,ciphertext,auth_tag,release_at FROM match_credentials WHERE match_id=$1 AND status='Set'",[id.data]);const record=credential.rows[0];if(!record)return fail(res,404,'NOT_FOUND','Room details are not set.');if(record.release_at.getTime()>Date.now())return fail(res,423,'NOT_ELIGIBLE','Room details are not released yet.',{available_at:record.release_at});
-      const values=decrypt(key,record);await audit(client,res.locals.admin.id,'credential.viewed','match_credential',record.id,{match_id:id.data,version_no:record.version_no});return res.json({data:{...values,version_no:record.version_no}});
+      const previous=config.CREDENTIAL_ENCRYPTION_KEY_PREVIOUS?Buffer.from(config.CREDENTIAL_ENCRYPTION_KEY_PREVIOUS,'hex'):null;
+      const values=decryptWithFallback(key,previous,record);await audit(client,res.locals.admin.id,'credential.viewed','match_credential',record.id,{match_id:id.data,version_no:record.version_no});return res.json({data:{...values,version_no:record.version_no}});
     }finally{client.release();}
   });
   return router;

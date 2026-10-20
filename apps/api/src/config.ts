@@ -7,6 +7,7 @@ const configSchema = z.object({
   DATABASE_URL:databaseUrl,
   READINESS_TOKEN:z.string().min(32).refine(value=>!value.startsWith('REPLACE_')),
   CREDENTIAL_ENCRYPTION_KEY:z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
+  CREDENTIAL_ENCRYPTION_KEY_PREVIOUS:z.preprocess(value=>value===''?undefined:value,z.string().regex(/^[0-9a-fA-F]{64}$/).optional()),
   SMTP_HOST:z.string().min(1).optional(),
   SMTP_PORT:z.coerce.number().int().min(1).max(65535).default(587),
   SMTP_USER:z.string().min(1).optional(),
@@ -16,6 +17,7 @@ const configSchema = z.object({
 }).superRefine((v,ctx)=>{
   if(v.NODE_ENV==='production' && !v.WEB_ORIGIN.startsWith('https://')) ctx.addIssue({code:'custom',path:['WEB_ORIGIN'],message:'HTTPS required'});
   if(v.NODE_ENV==='production' && !v.CREDENTIAL_ENCRYPTION_KEY) ctx.addIssue({code:'custom',path:['CREDENTIAL_ENCRYPTION_KEY'],message:'Required in production'});
+  if(v.CREDENTIAL_ENCRYPTION_KEY_PREVIOUS&&v.CREDENTIAL_ENCRYPTION_KEY_PREVIOUS.toLowerCase()===v.CREDENTIAL_ENCRYPTION_KEY?.toLowerCase())ctx.addIssue({code:'custom',path:['CREDENTIAL_ENCRYPTION_KEY_PREVIOUS'],message:'Previous key must differ'});
   if(v.NODE_ENV==='production' && (!v.SMTP_HOST||!v.SMTP_USER||!v.SMTP_PASSWORD||!v.SMTP_FROM)) ctx.addIssue({code:'custom',path:['SMTP_HOST'],message:'SMTP settings are required in production'});
 });
 export type Config = z.infer<typeof configSchema>;
